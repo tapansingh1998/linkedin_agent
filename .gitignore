@@ -1,0 +1,6 @@
+.env
+venv/
+linkedin_token.json
+pending_approvals.json
+__pycache__/
+*.pyc
