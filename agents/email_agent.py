@@ -10,7 +10,7 @@ from html import escape
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from config import (
-    SMTP_HOST, SMTP_PORT, SENDER_EMAIL, SENDER_PASS,
+    SMTP_PORT, SENDER_EMAIL, SENDER_PASS,
     APPROVAL_EMAIL, APP_BASE_URL
 )
 
@@ -221,9 +221,7 @@ def send_topic_selection_email(topics: list[dict]) -> list[dict]:
             print(f"[email_agent] Topic select URL: {APP_BASE_URL}/select-topic/{item['token']}")
         return tokenized_topics
 
-    with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
-        server.ehlo()
-        server.starttls()
+    with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
         server.login(SENDER_EMAIL, SENDER_PASS)
         server.sendmail(SENDER_EMAIL, APPROVAL_EMAIL, msg.as_string())
 
@@ -252,9 +250,7 @@ def send_approval_email(post_text: str, topic: dict) -> str:
         print(f"[email_agent] Approve URL would be: {approve_url}")
         return token
 
-    with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
-        server.ehlo()
-        server.starttls()
+    with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
         server.login(SENDER_EMAIL, SENDER_PASS)
         server.sendmail(SENDER_EMAIL, APPROVAL_EMAIL, msg.as_string())
 

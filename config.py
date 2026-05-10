@@ -18,7 +18,7 @@ LINKEDIN_TOKEN_FILE    = "linkedin_token.json"   # saved after first OAuth flow
 
 # ── Email (Gmail SMTP) ───────────────────────────────────────────────────────
 SMTP_HOST     = "smtp.gmail.com"
-SMTP_PORT     = 587
+SMTP_PORT     = 465
 SENDER_EMAIL  = os.getenv("SENDER_EMAIL",  "dummy.sender@gmail.com")
 SENDER_PASS   = os.getenv("SENDER_PASS",   "DUMMY_APP_PASSWORD")   # Gmail App Password
 APPROVAL_EMAIL = os.getenv("APPROVAL_EMAIL", "tapan@example.com")  # your inbox
