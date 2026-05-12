@@ -2,17 +2,17 @@
 Email Agent — sends the generated post to your inbox
 with an Approve button. Clicking Approve hits the FastAPI endpoint.
 """
-import smtplib
+import resend
 import secrets
 import json
 import os
 from html import escape
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
 from config import (
-    SMTP_PORT, SENDER_EMAIL, SENDER_PASS,
-    APPROVAL_EMAIL, APP_BASE_URL
+    SENDER_EMAIL, APPROVAL_EMAIL, APP_BASE_URL
 )
+
+# Initialize Resend
+resend.api_key = os.getenv("RESEND_API_KEY")
 
 # Simple file-based token store (works fine for single user)
 TOKEN_STORE_FILE = "pending_approvals.json"
@@ -75,6 +75,16 @@ def get_pending_topic(token: str) -> dict | None:
         data.pop("type", None)
         _save_store(store)
     return data
+
+
+def _send_email(subject: str, html: str):
+    """Send email via Resend API."""
+    resend.Emails.send({
+        "from": "onboarding@resend.dev",
+        "to": APPROVAL_EMAIL,
+        "subject": subject,
+        "html": html,
+    })
 
 
 def _build_topic_selection_email(tokenized_topics: list[dict]) -> str:
@@ -206,25 +216,15 @@ def send_topic_selection_email(topics: list[dict]) -> list[dict]:
     Returns [{token, topic}, ...] so the run log can show pending choices.
     """
     tokenized_topics = create_topic_selection_tokens(topics)
-
-    msg = MIMEMultipart("alternative")
-    msg["Subject"] = "[LinkedIn Agent] Choose today's topic"
-    msg["From"]    = SENDER_EMAIL
-    msg["To"]      = APPROVAL_EMAIL
-
     html_body = _build_topic_selection_email(tokenized_topics)
-    msg.attach(MIMEText(html_body, "html"))
 
-    if SENDER_EMAIL == "dummy.sender@gmail.com":
-        print("[email_agent] DUMMY mode - skipping real SMTP send")
+    if not os.getenv("RESEND_API_KEY"):
+        print("[email_agent] DUMMY mode - skipping real send")
         for item in tokenized_topics:
             print(f"[email_agent] Topic select URL: {APP_BASE_URL}/select-topic/{item['token']}")
         return tokenized_topics
 
-    with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
-        server.login(SENDER_EMAIL, SENDER_PASS)
-        server.sendmail(SENDER_EMAIL, APPROVAL_EMAIL, msg.as_string())
-
+    _send_email("[LinkedIn Agent] Choose today's topic", html_body)
     print(f"[email_agent] Topic selection email sent to {APPROVAL_EMAIL}")
     return tokenized_topics
 
@@ -236,23 +236,16 @@ def send_approval_email(post_text: str, topic: dict) -> str:
     """
     token = create_approval_token(post_text, topic)
     approve_url = f"{APP_BASE_URL}/approve/{token}"
-
-    msg = MIMEMultipart("alternative")
-    msg["Subject"] = f"[LinkedIn Agent] Post ready: {topic.get('topic', 'AI Update')[:50]}"
-    msg["From"]    = SENDER_EMAIL
-    msg["To"]      = APPROVAL_EMAIL
-
     html_body = _build_html_email(post_text, topic, approve_url)
-    msg.attach(MIMEText(html_body, "html"))
 
-    if SENDER_EMAIL == "dummy.sender@gmail.com":
-        print("[email_agent] DUMMY mode — skipping real SMTP send")
+    if not os.getenv("RESEND_API_KEY"):
+        print("[email_agent] DUMMY mode — skipping real send")
         print(f"[email_agent] Approve URL would be: {approve_url}")
         return token
 
-    with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
-        server.login(SENDER_EMAIL, SENDER_PASS)
-        server.sendmail(SENDER_EMAIL, APPROVAL_EMAIL, msg.as_string())
-
+    _send_email(
+        f"[LinkedIn Agent] Post ready: {topic.get('topic', 'AI Update')[:50]}",
+        html_body
+    )
     print(f"[email_agent] Approval email sent to {APPROVAL_EMAIL}")
     return token
