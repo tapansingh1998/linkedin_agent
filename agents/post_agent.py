@@ -6,26 +6,22 @@ using Gemini, with persona + system prompt injection.
 from google import genai
 from config import GEMINI_API_KEY, GEMINI_MODEL, USER_PERSONA, SYSTEM_PROMPT
 
-DUMMY_POST = """Most engineers think RAG is just "add a vector DB and call it a day."
+DUMMY_POST = """**RAG** is lying to you.
 
-It's not.
+Not the idea — the implementation.
 
-After building 6 RAG pipelines in production, here's what actually matters:
+Most teams swap the LLM when results are bad.
+The real problem? **Chunking strategy.**
 
-→ Chunk size kills more projects than model choice
-→ Hybrid search (BM25 + dense) beats pure vector search in 80% of cases
-→ Your retrieval eval is more important than your generation eval
-→ Metadata filtering is the cheat code nobody talks about
+Bad chunks → bad retrieval → bad answers.
+The model never had a chance.
 
-The painful truth: most RAG failures are retrieval failures, not LLM failures.
+Before you touch the prompt or the model — audit your chunks.
+Overlap, size, structure. That's where quality lives.
 
-We obsess over prompts and models while ignoring the boring infrastructure that actually determines quality.
+Are you fixing the model — or the wrong problem?
 
-Next time your RAG pipeline underperforms — before you swap the LLM, audit your chunking strategy.
-
-What's been your biggest RAG surprise in production?
-
-#RAG #LLM #AIEngineering #VectorSearch #AgenticAI"""
+#RAG #LLMEngineering #AIEngineering #MLOps"""
 
 
 def generate_post(topic: dict) -> str:
@@ -39,14 +35,22 @@ def generate_post(topic: dict) -> str:
         return DUMMY_POST
 
     user_prompt = f"""
-Write a LinkedIn post for this person about the topic below.
+Write a LinkedIn post for Tapan Singh using the topic and angle below.
 
 TOPIC: {topic['topic']}
-ANGLE TO TAKE: {topic['angle']}
+ANGLE: {topic['angle']}
 CONTEXT: {topic['reasoning']}
 
-ABOUT THE AUTHOR:
+AUTHOR PROFILE:
 {USER_PERSONA}
+
+Remember:
+- Hook is 3-5 words, bold the key word
+- Total post is 80-120 words max
+- Bold 1-2 key phrases in the body
+- End with one sharp specific question
+- 3-4 hashtags at the bottom
+- Write ONLY the post, nothing else
 """
 
     client = genai.Client(api_key=GEMINI_API_KEY)

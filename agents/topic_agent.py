@@ -1,13 +1,12 @@
 """
 Agent 1 — Topic Discovery
 Fetches latest AI/tech news from free RSS feeds, then asks Gemini
-to pick the single most relevant topic for Tapan's persona.
+to pick the most relevant trending topics for Tapan's persona.
 """
 import httpx
 import xml.etree.ElementTree as ET
 from config import GEMINI_API_KEY, GEMINI_MODEL, USER_PERSONA
 from google import genai
-from google.genai import types
 
 RSS_FEEDS = [
     "https://feeds.feedburner.com/oreilly/radar/atom",
@@ -76,9 +75,13 @@ def pick_best_topics(headlines: list[str], count: int = 5) -> list[dict]:
     """
     headlines_block = "\n".join(f"- {h}" for h in headlines)
     prompt = f"""
-You are a content strategist. Given the following recent AI/tech headlines
-and the LinkedIn persona below, pick the {count} headlines that would make
-the most engaging and authentic LinkedIn posts for this person.
+You are a content strategist for an AI/ML Engineer who posts on LinkedIn.
+
+Your job: pick {count} headlines from the list below that are:
+1. Strictly AI/ML focused — no generic tech, no business news
+2. Trending and recent — nothing that feels old or already over-discussed
+3. Different from each other — no two topics should be about the same theme
+4. Opinionated — topics where an engineer can share a real counterpoint, lesson, or lived experience — NOT just summarise what happened
 
 PERSONA:
 {USER_PERSONA}
@@ -86,14 +89,19 @@ PERSONA:
 HEADLINES:
 {headlines_block}
 
-Respond in this exact format (no extra text):
-TOPIC 1: <the exact headline text>
-ANGLE 1: <in one sentence, the specific angle/insight this person should take>
-REASONING 1: <why this topic fits their audience and expertise in 1-2 sentences>
+For each chosen topic, define:
+- ANGLE: The specific contrarian or practical insight Tapan should take. Must be one sharp sentence — an opinion, not a description.
+- REASONING: Why this topic is relevant RIGHT NOW for an AI/ML engineer audience. 1 sentence only.
 
-TOPIC 2: <the exact headline text>
-ANGLE 2: <in one sentence, the specific angle/insight this person should take>
-REASONING 2: <why this topic fits their audience and expertise in 1-2 sentences>
+Respond in this exact format (no extra text, no numbering variations):
+
+TOPIC 1: <exact headline text>
+ANGLE 1: <one sharp opinionated sentence on what angle to take>
+REASONING 1: <one sentence on why this is timely and relevant>
+
+TOPIC 2: <exact headline text>
+ANGLE 2: <one sharp opinionated sentence on what angle to take>
+REASONING 2: <one sentence on why this is timely and relevant>
 
 Continue the same pattern through TOPIC {count}.
 """
@@ -101,8 +109,8 @@ Continue the same pattern through TOPIC {count}.
         return [
             {
                 "topic": headline,
-                "angle": "Share a practical engineer's perspective on what this means day-to-day",
-                "reasoning": "This is highly relevant to AI engineers and will spark conversation.",
+                "angle": "Most engineers misunderstand this — here is what actually matters in production.",
+                "reasoning": "This is actively being discussed in AI/ML circles right now.",
             }
             for headline in headlines[:count]
         ]
@@ -129,11 +137,12 @@ Continue the same pattern through TOPIC {count}.
     if parsed_topics:
         return parsed_topics[:count]
 
+    # Fallback
     return [
         {
             "topic": headline,
-            "angle": "Share a practical engineer's perspective on what this means day-to-day",
-            "reasoning": "This is relevant to AI engineers and can start a useful conversation.",
+            "angle": "Most engineers misunderstand this — here is what actually matters in production.",
+            "reasoning": "This is actively being discussed in AI/ML circles right now.",
         }
         for headline in headlines[:count]
     ]
