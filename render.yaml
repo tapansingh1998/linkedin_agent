@@ -1,26 +1,37 @@
 services:
   - type: web
-    name: linkedin-ai-agent
+    name: linkedin-studio-pro
     runtime: python
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
     envVars:
-      - key: GEMINI_API_KEY
-        sync: false
       - key: LINKEDIN_CLIENT_ID
         sync: false
       - key: LINKEDIN_CLIENT_SECRET
         sync: false
       - key: LINKEDIN_REDIRECT_URI
         sync: false
-      - key: SENDER_EMAIL
+      - key: LINKEDIN_SCOPES
+        value: "openid profile w_member_social email"
+      - key: GEMINI_API_KEY
         sync: false
-      - key: SENDER_PASS
+      - key: GEMINI_MODEL
+        value: "gemini-1.5-flash"
+      - key: PIXABAY_API_KEY
         sync: false
-      - key: APPROVAL_EMAIL
+      - key: PEXELS_API_KEY
         sync: false
-      - key: APP_BASE_URL
+      - key: SUPABASE_URL
         sync: false
-      - key: SECRET_KEY
+      - key: SUPABASE_KEY
         sync: false
-    healthCheckPath: /health
+      - key: TOKEN_FILE
+        value: "li_tokens.json"
+      - key: PROFILE_FILE
+        value: "li_profile.json"
+      - key: SCHEDULER_FILE
+        value: "scheduler_jobs.json"
+      - key: CACHE_DIR
+        value: "li_cache"
+      - key: SCHEDULED_IMAGES_DIR
+        value: "scheduled_images"
