@@ -28,7 +28,7 @@ from config import (
     SCHEDULE_DAYS, SCHEDULE_HOUR_UTC, SCHEDULE_MINUTE_UTC,
     APP_BASE_URL, LINKEDIN_CLIENT_ID
 )
-from agents import topic_agent, post_agent, email_agent, linkedin_agent
+from agents import topic_agent, post_agent, email_agent, linkedin_agent, image_agent
 
 # ── In-memory run log (last 20 runs) ────────────────────────────────────────
 run_log: list[dict] = []
