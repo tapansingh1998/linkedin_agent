@@ -8,7 +8,7 @@ load_dotenv()
 
 # ── Gemini ──────────────────────────────────────────────────────────────────
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "DUMMY_GEMINI_API_KEY")
-GEMINI_MODEL   = "gemini-2.5-flash"          # free-tier model
+GEMINI_MODEL   = "gemini-2.5-flash"
 
 # ── LinkedIn OAuth ───────────────────────────────────────────────────────────
 LINKEDIN_CLIENT_ID     = os.getenv("LINKEDIN_CLIENT_ID",     "DUMMY_CLIENT_ID")
@@ -16,16 +16,18 @@ LINKEDIN_CLIENT_SECRET = os.getenv("LINKEDIN_CLIENT_SECRET", "DUMMY_CLIENT_SECRE
 LINKEDIN_REDIRECT_URI  = os.getenv("LINKEDIN_REDIRECT_URI",  "http://localhost:8000/auth/callback")
 LINKEDIN_TOKEN_FILE    = "linkedin_token.json"   # saved after first OAuth flow
 
-# ── Email (Gmail SMTP) ───────────────────────────────────────────────────────
-SMTP_HOST     = "smtp.gmail.com"
-SMTP_PORT     = 465
-SENDER_EMAIL  = os.getenv("SENDER_EMAIL",  "dummy.sender@gmail.com")
-SENDER_PASS   = os.getenv("SENDER_PASS",   "DUMMY_APP_PASSWORD")   # Gmail App Password
-APPROVAL_EMAIL = os.getenv("APPROVAL_EMAIL", "tapan@example.com")  # your inbox
+# ── Email (Resend) ───────────────────────────────────────────────────────────
+RESEND_API_KEY = os.getenv("RESEND_API_KEY", "")
+SENDER_EMAIL   = os.getenv("SENDER_EMAIL",  "onboarding@resend.dev")  # your verified Resend sender
+APPROVAL_EMAIL = os.getenv("APPROVAL_EMAIL", "tapan@example.com")     # your inbox
+
+# ── Pexels (image search) ────────────────────────────────────────────────────
+PEXELS_API_KEY     = os.getenv("PEXELS_API_KEY", "DUMMY_PEXELS_API_KEY")
+IMAGE_HISTORY_FILE = "image_history.json"   # tracks used image IDs + queries to avoid repeats
 
 # ── App ──────────────────────────────────────────────────────────────────────
-APP_BASE_URL  = os.getenv("APP_BASE_URL", "http://localhost:8000")  # Render URL in prod
-SECRET_KEY    = os.getenv("SECRET_KEY",   "DUMMY_SECRET_32CHARS_REPLACE")
+APP_BASE_URL = os.getenv("APP_BASE_URL", "http://localhost:8000")  # Render URL in prod
+SECRET_KEY   = os.getenv("SECRET_KEY",   "DUMMY_SECRET_32CHARS_REPLACE")
 
 # ── Persona & content focus ──────────────────────────────────────────────────
 USER_PERSONA = """
@@ -46,7 +48,7 @@ Content Philosophy:
 - Never just summarises news — always adds an opinion, a counterpoint, or a lived experience angle
 - Prefers "here's what nobody tells you" style angles over surface-level takes
 """
- 
+
 # ── System Prompt ─────────────────────────────────────────────────────────────
 SYSTEM_PROMPT = """
 You are a ghostwriter for Tapan Singh, an AI/ML Engineer on LinkedIn.
@@ -77,8 +79,9 @@ OUTPUT:
 - Write ONLY the post text. No intro, no explanation, no metadata.
 - Never exceed 130 words including hashtags.
 """
+
 # ── Scheduler ────────────────────────────────────────────────────────────────
 # Every Wednesday and Thursday at 9:00 AM IST (UTC+5:30 = 03:30 UTC)
-SCHEDULE_DAYS  = ["wed", "thu"]
-SCHEDULE_HOUR_UTC  = 3
+SCHEDULE_DAYS       = ["wed", "thu"]
+SCHEDULE_HOUR_UTC   = 3
 SCHEDULE_MINUTE_UTC = 30

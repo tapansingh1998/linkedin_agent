@@ -393,8 +393,10 @@ async def select_topic(token: str):
     pipeline_status["state"] = "running"
 
     try:
-        post_text = await asyncio.to_thread(post_agent.run, topic)
-        approval_token = await asyncio.to_thread(email_agent.send_approval_email, post_text, topic)
+        post_text, image_data = await asyncio.to_thread(post_agent.run, topic)
+        approval_token = await asyncio.to_thread(
+            email_agent.send_approval_email, post_text, topic, image_data
+        )
 
         for entry in run_log:
             if token in entry.get("topic_tokens", []):
@@ -437,11 +439,13 @@ async def approve_post(token: str):
     if not data:
         raise HTTPException(status_code=404, detail="Token not found or already used")
 
-    post_text = data["post"]
-    topic     = data["topic"]
+    post_text  = data["post"]
+    topic      = data["topic"]
+    image_data = data.get("image_data") or {}
+    image_path = image_data.get("image_path")
 
     try:
-        result = await asyncio.to_thread(linkedin_agent.run_post, post_text)
+        result = await asyncio.to_thread(linkedin_agent.run_post, post_text, image_path)
         # Update last run log entry
         for entry in run_log:
             if entry.get("token") == token:
@@ -461,7 +465,7 @@ async def approve_post(token: str):
         <div class="box">
           <div class="icon">&#10003;</div>
           <h1>Published to LinkedIn!</h1>
-          <p>Your post about "<em>{topic.get('topic','')[:60]}</em>" is now live on your profile.</p>
+          <p>Your post about "<em>{topic.get('topic','')[:60]}</em>" is now live on your profile{"&nbsp;📸" if image_path else ""}.</p>
           <br><a href="/">Back to dashboard</a>
         </div></body></html>
         """)

@@ -2,6 +2,7 @@
 Agent 3 — LinkedIn Publisher
 Handles OAuth token storage and posting via LinkedIn UGC Posts API.
 Token is persisted in Render environment variable so it survives restarts.
+Supports image upload via LinkedIn Assets API.
 """
 import json
 import os
@@ -94,7 +95,6 @@ def save_token(token_data: dict):
     1. Render env var (survives restarts)
     2. Local file (local dev)
     """
-    # Always save to file as local fallback
     try:
         with open(LINKEDIN_TOKEN_FILE, "w") as f:
             json.dump(token_data, f, indent=2)
@@ -102,7 +102,6 @@ def save_token(token_data: dict):
     except Exception as e:
         print(f"[linkedin_agent] Warning: Could not save token file: {e}")
 
-    # Save to Render env var for persistence
     _save_token_to_render(token_data)
 
 
@@ -145,24 +144,117 @@ def get_profile(access_token: str) -> dict:
     return resp.json()
 
 
+# ── Image upload ──────────────────────────────────────────────────────────────
+
+def _register_image_upload(person_urn: str, access_token: str) -> tuple[str, str]:
+    """
+    Step 1 of LinkedIn image upload:
+    Register the upload → get (upload_url, image_asset_urn).
+    """
+    payload = {
+        "registerUploadRequest": {
+            "owner": person_urn,
+            "recipes": ["urn:li:digitalmediaRecipe:feedshare-image"],
+            "serviceRelationships": [
+                {
+                    "identifier": "urn:li:userGeneratedContent",
+                    "relationshipType": "OWNER",
+                }
+            ],
+        }
+    }
+    resp = httpx.post(
+        f"{LINKEDIN_API}/assets?action=registerUpload",
+        json=payload,
+        headers={
+            "Authorization":             f"Bearer {access_token}",
+            "Content-Type":              "application/json",
+            "X-Restli-Protocol-Version": "2.0.0",
+        },
+        timeout=15,
+    )
+    resp.raise_for_status()
+    data       = resp.json()
+    upload_url = data["value"]["uploadMechanism"][
+        "com.linkedin.digitalmedia.uploading.MediaUploadHttpRequest"
+    ]["uploadUrl"]
+    image_urn  = data["value"]["asset"]
+    return upload_url, image_urn
+
+
+def _upload_image_bytes(upload_url: str, image_path: str, access_token: str):
+    """Step 2: PUT the image bytes to the signed LinkedIn upload URL."""
+    with open(image_path, "rb") as f:
+        image_bytes = f.read()
+
+    resp = httpx.put(
+        upload_url,
+        content=image_bytes,
+        headers={
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type":  "image/jpeg",
+        },
+        timeout=30,
+    )
+    resp.raise_for_status()
+    print(f"[linkedin_agent] Image uploaded ({len(image_bytes) // 1024} KB)")
+
+
+def upload_image(image_path: str, person_urn: str, access_token: str) -> str | None:
+    """
+    Full image upload flow.
+    Returns the LinkedIn image asset URN, or None on any failure.
+    Post will fall back to text-only gracefully.
+    """
+    try:
+        upload_url, image_urn = _register_image_upload(person_urn, access_token)
+        _upload_image_bytes(upload_url, image_path, access_token)
+        print(f"[linkedin_agent] Image URN: {image_urn}")
+        return image_urn
+    except Exception as e:
+        print(f"[linkedin_agent] Image upload failed: {e} — falling back to text-only")
+        return None
+
+
 # ── Posting ───────────────────────────────────────────────────────────────────
 
-def post_to_linkedin(post_text: str, access_token: str) -> dict:
+def post_to_linkedin(post_text: str, access_token: str, image_path: str | None = None) -> dict:
     """
-    Create a LinkedIn text post via UGC Posts API.
+    Create a LinkedIn post via UGC Posts API.
+    Attaches image if image_path is provided and upload succeeds.
+    Falls back to text-only post if image upload fails.
     Returns the API response dict.
     """
-    profile = get_profile(access_token)
+    profile    = get_profile(access_token)
     person_urn = f"urn:li:person:{profile['sub']}"
 
+    # Try image upload
+    image_urn = None
+    if image_path:
+        image_urn = upload_image(image_path, person_urn, access_token)
+
+    if image_urn:
+        share_content = {
+            "shareCommentary":    {"text": post_text},
+            "shareMediaCategory": "IMAGE",
+            "media": [
+                {
+                    "status": "READY",
+                    "media":  image_urn,
+                }
+            ],
+        }
+    else:
+        share_content = {
+            "shareCommentary":    {"text": post_text},
+            "shareMediaCategory": "NONE",
+        }
+
     payload = {
-        "author": person_urn,
+        "author":        person_urn,
         "lifecycleState": "PUBLISHED",
         "specificContent": {
-            "com.linkedin.ugc.ShareContent": {
-                "shareCommentary": {"text": post_text},
-                "shareMediaCategory": "NONE",
-            }
+            "com.linkedin.ugc.ShareContent": share_content
         },
         "visibility": {
             "com.linkedin.ugc.MemberNetworkVisibility": "PUBLIC"
@@ -177,21 +269,27 @@ def post_to_linkedin(post_text: str, access_token: str) -> dict:
             "Content-Type":              "application/json",
             "X-Restli-Protocol-Version": "2.0.0",
         },
+        timeout=15,
     )
     resp.raise_for_status()
-    print(f"[linkedin_agent] Post published! ID: {resp.headers.get('x-restli-id', 'unknown')}")
+    post_id = resp.headers.get("x-restli-id", "unknown")
+    print(f"[linkedin_agent] Post published! ID: {post_id} | with_image: {image_urn is not None}")
     return resp.json() if resp.text else {"status": "published"}
 
 
-def run_post(post_text: str) -> dict:
+# ── Entry point ───────────────────────────────────────────────────────────────
+
+def run_post(post_text: str, image_path: str | None = None) -> dict:
     """
-    Main entry: load token and publish post.
+    Main entry: load token and publish post (with optional image).
     Raises RuntimeError if not authenticated yet.
     """
     # Dummy mode
     if LINKEDIN_CLIENT_ID == "DUMMY_CLIENT_ID":
         print("[linkedin_agent] DUMMY mode — simulating post")
         print(f"[linkedin_agent] Would post:\n{post_text[:120]}...")
+        if image_path:
+            print(f"[linkedin_agent] Would attach image: {image_path}")
         return {"status": "dummy_published", "post_preview": post_text[:120]}
 
     token_data = load_token()
@@ -200,4 +298,4 @@ def run_post(post_text: str) -> dict:
             "No LinkedIn token found. Visit /auth/linkedin to authenticate first."
         )
 
-    return post_to_linkedin(post_text, token_data["access_token"])
+    return post_to_linkedin(post_text, token_data["access_token"], image_path)

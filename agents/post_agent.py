@@ -5,23 +5,28 @@ using Gemini, with persona + system prompt injection.
 """
 from google import genai
 from config import GEMINI_API_KEY, GEMINI_MODEL, USER_PERSONA, SYSTEM_PROMPT
+import image_agent
 
-DUMMY_POST = """**RAG** is lying to you.
+DUMMY_POST = """Most engineers think RAG is just "add a vector DB and call it a day."
 
-Not the idea — the implementation.
+It's not.
 
-Most teams swap the LLM when results are bad.
-The real problem? **Chunking strategy.**
+After building 6 RAG pipelines in production, here's what actually matters:
 
-Bad chunks → bad retrieval → bad answers.
-The model never had a chance.
+→ Chunk size kills more projects than model choice
+→ Hybrid search (BM25 + dense) beats pure vector search in 80% of cases
+→ Your retrieval eval is more important than your generation eval
+→ Metadata filtering is the cheat code nobody talks about
 
-Before you touch the prompt or the model — audit your chunks.
-Overlap, size, structure. That's where quality lives.
+The painful truth: most RAG failures are retrieval failures, not LLM failures.
 
-Are you fixing the model — or the wrong problem?
+We obsess over prompts and models while ignoring the boring infrastructure that actually determines quality.
 
-#RAG #LLMEngineering #AIEngineering #MLOps"""
+Next time your RAG pipeline underperforms — before you swap the LLM, audit your chunking strategy.
+
+What's been your biggest RAG surprise in production?
+
+#RAG #LLM #AIEngineering #VectorSearch #AgenticAI"""
 
 
 def generate_post(topic: dict) -> str:
@@ -35,22 +40,14 @@ def generate_post(topic: dict) -> str:
         return DUMMY_POST
 
     user_prompt = f"""
-Write a LinkedIn post for Tapan Singh using the topic and angle below.
+Write a LinkedIn post for this person about the topic below.
 
 TOPIC: {topic['topic']}
-ANGLE: {topic['angle']}
+ANGLE TO TAKE: {topic['angle']}
 CONTEXT: {topic['reasoning']}
 
-AUTHOR PROFILE:
+ABOUT THE AUTHOR:
 {USER_PERSONA}
-
-Remember:
-- Hook is 3-5 words, bold the key word
-- Total post is 80-120 words max
-- Bold 1-2 key phrases in the body
-- End with one sharp specific question
-- 3-4 hashtags at the bottom
-- Write ONLY the post, nothing else
 """
 
     client = genai.Client(api_key=GEMINI_API_KEY)
@@ -64,7 +61,15 @@ Remember:
     return post_text
 
 
-def run(topic: dict) -> str:
-    """Entry point — returns generated post text."""
+def run(topic: dict) -> tuple[str, dict]:
+    """
+    Entry point — returns (post_text, image_data).
+    image_data keys: image_path, image_url, pexels_query, photographer, photo_id
+    """
     print(f"[post_agent] Generating post for: {topic['topic']}")
-    return generate_post(topic)
+    post_text = generate_post(topic)
+
+    print(f"[post_agent] Fetching image for topic...")
+    image_data = image_agent.run(topic)
+
+    return post_text, image_data
