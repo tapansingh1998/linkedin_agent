@@ -4,6 +4,7 @@ Takes the topic dict from topic_agent (auto) or manual input from dashboard,
 generates a LinkedIn post using Gemini with persona + system prompt injection.
 Handles both thought leadership and marketing content automatically.
 """
+import re
 from google import genai
 from config import GEMINI_API_KEY, GEMINI_MODEL, USER_PERSONA, SYSTEM_PROMPT
 from agents import image_agent
@@ -30,6 +31,22 @@ What's been your biggest RAG surprise in production?
 #RAG #LLM #AIEngineering #VectorSearch #AgenticAI"""
 
 
+def _clean_post(text: str) -> str:
+    """
+    Clean up Gemini output before sending anywhere:
+    1. Strip markdown bold (**word**) — LinkedIn renders it as raw asterisks
+    2. Strip markdown italic (*word*)
+    3. Collapse 3+ blank lines into 2 (keep breathing room but not excess)
+    4. Strip leading/trailing whitespace
+    """
+    # Remove **bold** and *italic* markdown
+    text = re.sub(r'\*\*(.+?)\*\*', r'\1', text)
+    text = re.sub(r'\*(.+?)\*', r'\1', text)
+    # Collapse excessive blank lines
+    text = re.sub(r'\n{3,}', '\n\n', text)
+    return text.strip()
+
+
 def generate_post(topic: dict) -> str:
     """
     Generate a LinkedIn post for the given topic dict.
@@ -46,11 +63,10 @@ def generate_post(topic: dict) -> str:
 
     # Build context block — works for both auto and manual
     topic_text   = topic.get("topic", "")
-    details_text = topic.get("details", "")       # manual input
-    angle_text   = topic.get("angle", "")         # auto (RSS) input
-    reasoning    = topic.get("reasoning", "")     # auto (RSS) input
+    details_text = topic.get("details", "")    # manual input
+    angle_text   = topic.get("angle", "")      # auto (RSS) input
+    reasoning    = topic.get("reasoning", "")  # auto (RSS) input
 
-    # Combine whatever context we have
     context_lines = []
     if details_text:
         context_lines.append(f"USER CONTEXT & INTENT: {details_text}")
@@ -67,12 +83,25 @@ TOPIC: {topic_text}
 
 {context_block}
 
-IMPORTANT INSTRUCTIONS:
-- Read the USER CONTEXT carefully — it tells you the intent behind this post
-- If the context is about a product, service, or business solution: write from a practitioner's perspective sharing a real problem + how this type of solution addresses it. Do NOT write like an ad. Make it feel like a genuine insight or lesson.
-- If the context is a general insight or opinion: write pure thought leadership — share the lesson, add your take, end with a sharp question.
-- Either way, the post text, angle, and image should all feel connected and coherent.
-- The reader should not be able to tell it is marketing unless it naturally surfaces as a real insight.
+CRITICAL FORMATTING RULES — non-negotiable:
+- Plain text ONLY. No markdown. No asterisks. No bold. No bullet symbols like • or -.
+- Every paragraph is 1-2 lines max, followed by a blank line.
+- The post must have visible breathing room — never a wall of text.
+- Use → for lists only if needed, and only 2-3 items max.
+
+TONE RULES — non-negotiable:
+- Write like an engineer sharing a real observation with a peer. Casual but smart.
+- ZERO corporate buzzwords. Never use: paradigm shift, unprecedented, fundamentally,
+  redefine, bottleneck, ecosystem, leverage, synergy, game-changer, holistic, scalable solutions.
+- Say the simple version. "AI handles calls humans can't" not "AI redefines customer interaction paradigms".
+- If this is a product/marketing topic: surface it as a real problem + real observation.
+  Never sound like an ad. The reader should feel informed, not sold to.
+- If this is a thought leadership topic: share one sharp opinion and defend it briefly.
+
+CONTENT RULES:
+- One clear idea per post. Not a list of tips.
+- End with one specific, sharp question — not "What do you think?"
+- 3-4 hashtags on the last line only.
 
 ABOUT THE AUTHOR:
 {USER_PERSONA}
@@ -84,7 +113,7 @@ ABOUT THE AUTHOR:
         contents=user_prompt,
         config={"system_instruction": SYSTEM_PROMPT},
     )
-    post_text = response.text.strip()
+    post_text = _clean_post(response.text)
     print(f"[post_agent] Generated post ({len(post_text)} chars)")
     return post_text
 
