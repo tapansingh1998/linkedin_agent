@@ -235,6 +235,20 @@ body::before {
 /* Auth link */
 .auth-link { font-size:12px; font-family:var(--mono); color:var(--muted); }
 .auth-link a { color:var(--accent2); }
+
+/* Manual post panel */
+.manual-panel { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:24px; margin-bottom:24px; }
+.manual-panel h2 { font-size:16px; font-weight:700; margin-bottom:6px; }
+.manual-panel p { font-size:13px; color:var(--muted); margin-bottom:18px; font-family:var(--mono); }
+.field { margin-bottom:14px; }
+.field label { display:block; font-family:var(--mono); font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.08em; margin-bottom:6px; }
+.field input, .field textarea {
+  width:100%; background:var(--surface2); border:1px solid var(--border);
+  border-radius:8px; padding:10px 14px; color:var(--text); font-family:var(--sans);
+  font-size:14px; outline:none; resize:vertical; transition:border .15s;
+}
+.field input:focus, .field textarea:focus { border-color:var(--accent); }
+.field textarea { min-height:90px; }
 </style>
 </head>
 <body>
@@ -276,6 +290,20 @@ body::before {
     <div style="margin-top:16px;">
       <span class="auth-link">LinkedIn auth: <a href="/auth/linkedin">Connect LinkedIn account</a></span>
     </div>
+  </div>
+
+  <div class="manual-panel">
+    <h2>Write Your Own Post</h2>
+    <p>Skip RSS — give your own topic and context. Works for marketing or thought leadership.</p>
+    <div class="field">
+      <label>Topic</label>
+      <input type="text" id="manual-topic" placeholder="e.g. AI voice bot for 24/7 appointment booking" />
+    </div>
+    <div class="field">
+      <label>Details / Context</label>
+      <textarea id="manual-details" placeholder="e.g. Humans can't handle calls 24/7 but AI can. We provide solutions that automate appointment booking, reducing missed calls and staff overhead."></textarea>
+    </div>
+    <button class="btn btn-primary" id="manual-btn" onclick="triggerManual()">Generate Post</button>
   </div>
 
   <div class="log-panel">
@@ -349,6 +377,30 @@ async function triggerRun(){
   setTimeout(refreshStatus, 1000);
 }
 
+async function triggerManual(){
+  const topic   = document.getElementById('manual-topic').value.trim();
+  const details = document.getElementById('manual-details').value.trim();
+  if(!topic){ toast('Please enter a topic first', '#f87171'); return; }
+  if(!details){ toast('Please add some details or context', '#f87171'); return; }
+  const btn = document.getElementById('manual-btn');
+  btn.disabled = true; btn.textContent = 'Generating…';
+  try{
+    const res = await fetch('/run-manual', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({topic, details})
+    });
+    const data = await res.json();
+    if(res.ok){
+      toast('Post generating! Check your email soon.');
+      document.getElementById('manual-topic').value = '';
+      document.getElementById('manual-details').value = '';
+    } else { toast('Error: '+data.detail, '#f87171'); }
+  }catch(e){ toast('Network error','#f87171'); }
+  btn.disabled = false; btn.textContent = 'Generate Post';
+  setTimeout(refreshStatus, 1000);
+}
+
 refreshStatus();
 setInterval(refreshStatus, 15000);
 </script>
@@ -383,6 +435,58 @@ async def manual_run(background_tasks: BackgroundTasks):
     return {"message": "Pipeline started", "triggered_by": "manual"}
 
 
+@app.post("/run-manual")
+async def manual_post(background_tasks: BackgroundTasks, payload: dict):
+    """
+    Generate a post from user-supplied topic + details.
+    Skips RSS and topic selection — goes straight to post generation + approval email.
+    """
+    topic_text   = (payload.get("topic") or "").strip()
+    details_text = (payload.get("details") or "").strip()
+
+    if not topic_text:
+        raise HTTPException(status_code=400, detail="Topic is required")
+    if not details_text:
+        raise HTTPException(status_code=400, detail="Details are required")
+
+    topic = {"topic": topic_text, "details": details_text}
+
+    entry = {
+        "run_id":       datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S"),
+        "triggered_by": "manual_input",
+        "started_at":   datetime.now(timezone.utc).isoformat(),
+        "status":       "running",
+        "topic":        topic_text,
+        "post_preview": None,
+        "error":        None,
+    }
+    run_log.insert(0, entry)
+    if len(run_log) > 20:
+        run_log.pop()
+
+    async def _generate():
+        pipeline_status["state"] = "running"
+        try:
+            post_text, image_data = await asyncio.to_thread(post_agent.run, topic)
+            approval_token = await asyncio.to_thread(
+                email_agent.send_approval_email, post_text, topic, image_data
+            )
+            entry["status"]       = "awaiting_approval"
+            entry["post_preview"] = post_text[:120] + "..."
+            entry["token"]        = approval_token
+            pipeline_status["state"]    = "awaiting_approval"
+            pipeline_status["last_run"] = entry["started_at"]
+            print(f"[pipeline] Manual post generated — awaiting approval")
+        except Exception as exc:
+            entry["status"] = "error"
+            entry["error"]  = str(exc)
+            pipeline_status["state"] = "error"
+            print(f"[pipeline] Manual post ERROR: {exc}")
+
+    background_tasks.add_task(_generate)
+    return {"message": "Generating post, check your email soon.", "topic": topic_text}
+
+
 @app.get("/select-topic/{token}")
 async def select_topic(token: str):
     data = email_agent.get_pending_topic(token)
@@ -393,10 +497,8 @@ async def select_topic(token: str):
     pipeline_status["state"] = "running"
 
     try:
-        post_text, image_data = await asyncio.to_thread(post_agent.run, topic)
-        approval_token = await asyncio.to_thread(
-            email_agent.send_approval_email, post_text, topic, image_data
-        )
+        post_text = await asyncio.to_thread(post_agent.run, topic)
+        approval_token = await asyncio.to_thread(email_agent.send_approval_email, post_text, topic)
 
         for entry in run_log:
             if token in entry.get("topic_tokens", []):
@@ -439,13 +541,11 @@ async def approve_post(token: str):
     if not data:
         raise HTTPException(status_code=404, detail="Token not found or already used")
 
-    post_text  = data["post"]
-    topic      = data["topic"]
-    image_data = data.get("image_data") or {}
-    image_path = image_data.get("image_path")
+    post_text = data["post"]
+    topic     = data["topic"]
 
     try:
-        result = await asyncio.to_thread(linkedin_agent.run_post, post_text, image_path)
+        result = await asyncio.to_thread(linkedin_agent.run_post, post_text)
         # Update last run log entry
         for entry in run_log:
             if entry.get("token") == token:
@@ -465,7 +565,7 @@ async def approve_post(token: str):
         <div class="box">
           <div class="icon">&#10003;</div>
           <h1>Published to LinkedIn!</h1>
-          <p>Your post about "<em>{topic.get('topic','')[:60]}</em>" is now live on your profile{"&nbsp;📸" if image_path else ""}.</p>
+          <p>Your post about "<em>{topic.get('topic','')[:60]}</em>" is now live on your profile.</p>
           <br><a href="/">Back to dashboard</a>
         </div></body></html>
         """)

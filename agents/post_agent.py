@@ -1,11 +1,12 @@
 """
 Agent 2 — Post Generation
-Takes the topic dict from topic_agent and generates a LinkedIn post
-using Gemini, with persona + system prompt injection.
+Takes the topic dict from topic_agent (auto) or manual input from dashboard,
+generates a LinkedIn post using Gemini with persona + system prompt injection.
+Handles both thought leadership and marketing content automatically.
 """
 from google import genai
 from config import GEMINI_API_KEY, GEMINI_MODEL, USER_PERSONA, SYSTEM_PROMPT
-from agents import image_agent
+import image_agent
 
 DUMMY_POST = """Most engineers think RAG is just "add a vector DB and call it a day."
 
@@ -32,19 +33,46 @@ What's been your biggest RAG surprise in production?
 def generate_post(topic: dict) -> str:
     """
     Generate a LinkedIn post for the given topic dict.
-    topic = {topic, angle, reasoning}
-    Returns post text string.
+
+    Supports two modes:
+      Auto (RSS)   — topic = {topic, angle, reasoning}
+      Manual       — topic = {topic, details}
+
+    Gemini detects intent (marketing vs thought leadership) from the content.
     """
     if GEMINI_API_KEY == "DUMMY_GEMINI_API_KEY":
         print("[post_agent] Dummy mode — returning sample post")
         return DUMMY_POST
 
-    user_prompt = f"""
-Write a LinkedIn post for this person about the topic below.
+    # Build context block — works for both auto and manual
+    topic_text   = topic.get("topic", "")
+    details_text = topic.get("details", "")       # manual input
+    angle_text   = topic.get("angle", "")         # auto (RSS) input
+    reasoning    = topic.get("reasoning", "")     # auto (RSS) input
 
-TOPIC: {topic['topic']}
-ANGLE TO TAKE: {topic['angle']}
-CONTEXT: {topic['reasoning']}
+    # Combine whatever context we have
+    context_lines = []
+    if details_text:
+        context_lines.append(f"USER CONTEXT & INTENT: {details_text}")
+    if angle_text:
+        context_lines.append(f"SUGGESTED ANGLE: {angle_text}")
+    if reasoning:
+        context_lines.append(f"WHY THIS TOPIC: {reasoning}")
+    context_block = "\n".join(context_lines)
+
+    user_prompt = f"""
+Write a LinkedIn post about the topic below.
+
+TOPIC: {topic_text}
+
+{context_block}
+
+IMPORTANT INSTRUCTIONS:
+- Read the USER CONTEXT carefully — it tells you the intent behind this post
+- If the context is about a product, service, or business solution: write from a practitioner's perspective sharing a real problem + how this type of solution addresses it. Do NOT write like an ad. Make it feel like a genuine insight or lesson.
+- If the context is a general insight or opinion: write pure thought leadership — share the lesson, add your take, end with a sharp question.
+- Either way, the post text, angle, and image should all feel connected and coherent.
+- The reader should not be able to tell it is marketing unless it naturally surfaces as a real insight.
 
 ABOUT THE AUTHOR:
 {USER_PERSONA}
@@ -64,6 +92,7 @@ ABOUT THE AUTHOR:
 def run(topic: dict) -> tuple[str, dict]:
     """
     Entry point — returns (post_text, image_data).
+    Works for both auto (RSS) and manual (dashboard) topics.
     image_data keys: image_path, image_url, pexels_query, photographer, photo_id
     """
     print(f"[post_agent] Generating post for: {topic['topic']}")
