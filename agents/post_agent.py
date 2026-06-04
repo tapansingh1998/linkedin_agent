@@ -31,21 +31,55 @@ What's been your biggest RAG surprise in production?
 #RAG #LLM #AIEngineering #VectorSearch #AgenticAI"""
 
 
+# ── Unicode bold converter ────────────────────────────────────────────────────
+# LinkedIn does not render markdown — but it DOES display Unicode bold characters.
+# We tell Gemini to tag key words as [B]word[/B] and convert them here.
+
+_BOLD_MAP = {}
+
+def _build_bold_map():
+    normal  = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+    bold    = "𝗔𝗕𝗖𝗗𝗘𝗙𝗚𝗛𝗜𝗝𝗞𝗟𝗠𝗡𝗢𝗣𝗤𝗥𝗦𝗧𝗨𝗩𝗪𝗫𝗬𝗭𝗮𝗯𝗰𝗱𝗲𝗳𝗴𝗵𝗶𝗷𝗸𝗹𝗺𝗻𝗼𝗽𝗾𝗿𝘀𝘁𝘂𝘃𝘄𝘅𝘆𝘇𝟬𝟭𝟮𝟯𝟰𝟱𝟲𝟳𝟴𝟵"
+    for n, b in zip(normal, bold):
+        _BOLD_MAP[n] = b
+
+_build_bold_map()
+
+def _to_unicode_bold(word: str) -> str:
+    """Convert each character in word to its Unicode bold equivalent."""
+    return "".join(_BOLD_MAP.get(c, c) for c in word)
+
+def _apply_bold_tags(text: str) -> str:
+    """
+    Replace [B]word or phrase[/B] with Unicode bold characters.
+    Works on whole phrases, not just single words.
+    """
+    def replacer(match):
+        return _to_unicode_bold(match.group(1))
+    return re.sub(r'\[B\](.+?)\[/B\]', replacer, text)
+
+
+# ── Post cleaner ──────────────────────────────────────────────────────────────
+
 def _clean_post(text: str) -> str:
     """
     Clean up Gemini output before sending anywhere:
-    1. Strip markdown bold (**word**) — LinkedIn renders it as raw asterisks
-    2. Strip markdown italic (*word*)
-    3. Collapse 3+ blank lines into 2 (keep breathing room but not excess)
+    1. Convert [B]...[/B] tags to Unicode bold (LinkedIn-compatible)
+    2. Strip any leftover markdown bold (**) or italic (*) — safety net
+    3. Collapse 3+ blank lines into 2
     4. Strip leading/trailing whitespace
     """
-    # Remove **bold** and *italic* markdown
+    # Step 1 — convert our bold tags to Unicode bold
+    text = _apply_bold_tags(text)
+    # Step 2 — strip any leftover markdown (safety net)
     text = re.sub(r'\*\*(.+?)\*\*', r'\1', text)
     text = re.sub(r'\*(.+?)\*', r'\1', text)
-    # Collapse excessive blank lines
+    # Step 3 — clean up spacing
     text = re.sub(r'\n{3,}', '\n\n', text)
     return text.strip()
 
+
+# ── Post generator ────────────────────────────────────────────────────────────
 
 def generate_post(topic: dict) -> str:
     """
@@ -61,7 +95,6 @@ def generate_post(topic: dict) -> str:
         print("[post_agent] Dummy mode — returning sample post")
         return DUMMY_POST
 
-    # Build context block — works for both auto and manual
     topic_text   = topic.get("topic", "")
     details_text = topic.get("details", "")    # manual input
     angle_text   = topic.get("angle", "")      # auto (RSS) input
@@ -84,10 +117,13 @@ TOPIC: {topic_text}
 {context_block}
 
 CRITICAL FORMATTING RULES — non-negotiable:
-- Plain text ONLY. No markdown. No asterisks. No bold. No bullet symbols like • or -.
+- Use [B]word[/B] tags to bold 2-4 important words or short phrases across the post.
+- Bold ONLY the words that carry the most weight — the hook word, one key insight word, one word in the closing question.
+- Do NOT bold random words. Bold = the thing you want the reader to remember.
 - Every paragraph is 1-2 lines max, followed by a blank line.
 - The post must have visible breathing room — never a wall of text.
 - Use → for lists only if needed, and only 2-3 items max.
+- No other markdown. No asterisks. No bullet symbols like • or -.
 
 TONE RULES — non-negotiable:
 - Write like an engineer sharing a real observation with a peer. Casual but smart.
@@ -102,6 +138,11 @@ CONTENT RULES:
 - One clear idea per post. Not a list of tips.
 - End with one specific, sharp question — not "What do you think?"
 - 3-4 hashtags on the last line only.
+
+BOLD EXAMPLES (so you understand the format):
+  [B]Humans[/B] fatigue. Bots don't.
+  The real gap isn't [B]availability[/B] — it's resolution quality.
+  Are we optimizing for call volume or actual [B]customer satisfaction[/B]?
 
 ABOUT THE AUTHOR:
 {USER_PERSONA}
