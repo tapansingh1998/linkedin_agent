@@ -6,7 +6,7 @@ Handles both thought leadership and marketing content automatically.
 """
 from google import genai
 from config import GEMINI_API_KEY, GEMINI_MODEL, USER_PERSONA, SYSTEM_PROMPT
-import image_agent
+from agents import image_agent
 
 DUMMY_POST = """Most engineers think RAG is just "add a vector DB and call it a day."
 
