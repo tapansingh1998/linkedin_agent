@@ -58,30 +58,39 @@ def _extract_visual_query(topic: dict, used_queries: list[str]) -> str:
     context = details_text or angle_text or ""
 
     prompt = f"""
-You are a visual content strategist. Pick the perfect Pexels stock-photo search query for a LinkedIn post.
+You are a visual director choosing a Pexels stock photo for a LinkedIn post.
+Your job is to find an image that shows the EXACT SCENE the post is about — not a metaphor, not a generic tech photo.
 
 POST TOPIC: {topic_text}
 POST CONTEXT / INTENT: {context}
 
-RECENTLY USED QUERIES (do NOT repeat — choose something visually distinct):
+RECENTLY USED QUERIES (do NOT repeat visually — pick something distinct):
 {past_block}
 
-Rules:
-- Return ONLY 3-4 words, nothing else — no explanation, no punctuation
-- Must work well as a Pexels image search (real-world photos, not illustrations)
-- Use BOTH the topic AND the context to find the right visual — the image must match the story being told
-- If the context describes a business use case or product (e.g. voice bot for appointment booking), find an image that shows that real-world scenario (e.g. "customer service phone call")
-- If the context is a technical insight (e.g. RAG retrieval failures), find a metaphor image (e.g. "data search documents")
-- Avoid generic tech clichés like "artificial intelligence robot" or "laptop coding"
+THINKING PROCESS — follow this every time:
+1. What is the real-world SCENE this post describes? (e.g. someone booking an appointment by phone)
+2. Who are the PEOPLE or OBJECTS in that scene? (e.g. receptionist, phone, calendar, robot)
+3. What is the SETTING? (e.g. clinic, office, call center)
+4. Write 3-4 words that would find a photo of that exact scene on Pexels.
 
-Examples:
-  Topic: AI voice bot | Context: 24/7 appointment booking automation → "customer service phone office"
-  Topic: RAG pipelines | Context: retrieval failures not LLM failures → "data search retrieval"
-  Topic: MLOps | Context: deployment pipelines → "server room infrastructure"
-  Topic: Fine-tuning LLMs | Context: prompt engineering beats fine-tuning → "precision detail engineering"
-  Topic: Agentic AI | Context: autonomous decision making → "autonomous network connected"
+RULES:
+- Return ONLY 3-4 words. Nothing else. No explanation, no punctuation.
+- Must be a real-world scene photo — not an abstract, not an illustration, not a generic "technology" shot.
+- Be SPECIFIC. "robot answering phone" beats "AI technology". "doctor booking appointment" beats "healthcare AI".
+- If the topic is a business use case: show the human scenario the product solves.
+- If the topic is a technical insight: show the real-world consequence or metaphor (e.g. "engineer debugging server").
+- Avoid: "artificial intelligence", "technology innovation", "digital transformation", "laptop coding", "circuit board".
 
-Your query (3-4 words only):"""
+SCENE-BASED EXAMPLES (this is the level of specificity we want):
+  Topic: AI voice bot | Context: 24/7 appointment booking → "receptionist phone booking appointment"
+  Topic: AI voice bot | Context: call center automation → "call center agent headset"
+  Topic: RAG pipelines | Context: retrieval failures → "engineer searching documents frustrated"
+  Topic: MLOps | Context: deployment failures → "server room engineer monitoring"
+  Topic: LLM fine-tuning | Context: prompt beats fine-tune → "engineer whiteboard writing"
+  Topic: Agentic AI | Context: autonomous decisions → "robot arm factory precision"
+  Topic: Data privacy | Context: user data leaks → "locked door security office"
+
+Your query (3-4 words, the exact scene):"""
 
     if GEMINI_API_KEY == "DUMMY_GEMINI_API_KEY":
         words = [w for w in topic_text.split() if len(w) > 3][:3]
