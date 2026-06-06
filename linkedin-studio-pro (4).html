@@ -1273,9 +1273,12 @@ hr { border: none; border-top: 1px solid var(--border); margin: 18px 0; }
         <textarea id="postNowText" rows="8" placeholder="Write your post...&#10;&#10;You can paste generated content here or write manually."></textarea>
       </div>
       <div class="form-group">
-        <label>Image Path (optional)</label>
-        <input type="text" id="postNowImage" placeholder="e.g. li_cache/poster_0_1234567890.png">
-        <div style="font-size:10px;color:var(--text3);margin-top:4px">Use file path from generated poster</div>
+        <label>Image (optional)</label>
+        <input type="file" id="postNowImageFile" accept="image/*"
+          style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r-sm);padding:8px 12px;color:var(--text);width:100%;cursor:pointer">
+        <div style="font-size:10px;color:var(--text3);margin-top:4px">Upload an image to post with your text</div>
+        <!-- hidden text field kept for poster path selection compatibility -->
+        <input type="hidden" id="postNowImage">
       </div>
       <div style="display:flex;gap:10px">
         <button class="btn btn-primary btn-lg" onclick="postNow()" id="postNowBtn">🚀 Publish to LinkedIn</button>
@@ -1317,8 +1320,11 @@ hr { border: none; border-top: 1px solid var(--border); margin: 18px 0; }
         </div>
       </div>
       <div class="form-group">
-        <label>Image Path (optional)</label>
-        <input type="text" id="schedImage" placeholder="li_cache/poster_0_...png">
+        <label>Image (optional)</label>
+        <input type="file" id="schedImageFile" accept="image/*"
+          style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r-sm);padding:8px 12px;color:var(--text);width:100%;cursor:pointer">
+        <!-- hidden field kept for poster path compatibility -->
+        <input type="hidden" id="schedImage">
       </div>
       <button class="btn btn-primary btn-lg" onclick="schedulePost()" id="schedBtn">📅 Add to Queue</button>
     </div>
@@ -2383,21 +2389,66 @@ function selectPoster(path, card) {
   selectedPosterPath = path;
   document.querySelectorAll('.poster-card').forEach(c=>c.classList.remove('selected'));
   card.classList.add('selected');
-  toast('Image selected', 'success');
+  toast('Image selected — click "Post Now" or "Send to Schedule" to use it', 'success');
 }
 
-function useThisPoster(path) {
+// Fetch a poster URL and return a File object
+async function posterPathToFile(path) {
+  const url = API_BASE + '/' + path.replace(/^\/+/, '');
+  const res = await fetch(url);
+  const blob = await res.blob();
+  const filename = path.split('/').pop() || 'poster.png';
+  return new File([blob], filename, { type: blob.type || 'image/png' });
+}
 
+// Helper: show filename label next to a file input
+function showFileLabel(inputId, filename) {
+  const input = document.getElementById(inputId);
+  if(!input) return;
+  let label = input.nextElementSibling;
+  if(!label || !label.classList.contains('file-chosen-label')) {
+    label = document.createElement('div');
+    label.className = 'file-chosen-label';
+    label.style.cssText = 'font-size:11px;color:var(--green);margin-top:4px;font-family:var(--font-mono)';
+    input.parentNode.insertBefore(label, input.nextSibling);
+  }
+  label.textContent = '✓ ' + filename;
+}
+
+// Attach a File object to a file input (using DataTransfer trick)
+function attachFileToInput(inputId, file) {
+  const input = document.getElementById(inputId);
+  if(!input) return;
+  try {
+    const dt = new DataTransfer();
+    dt.items.add(file);
+    input.files = dt.files;
+    showFileLabel(inputId, file.name);
+  } catch(e) {
+    // DataTransfer not supported — store in global fallback
+    window._posterFileOverride = window._posterFileOverride || {};
+    window._posterFileOverride[inputId] = file;
+    showFileLabel(inputId, file.name);
+  }
+}
+
+async function useThisPoster(path) {
   console.log("POSTER PATH =", path);
-
   selectedPosterPath = path;
-  document.getElementById('postNowImage').value = path;
 
   if(generatedData?.text)
-      document.getElementById('postNowText').value = generatedData.text;
+    document.getElementById('postNowText').value = generatedData.text;
 
   showPage('postnow');
-    toast('Content loaded into Post Now', 'info');
+  toast('Loading poster image...', 'info');
+
+  try {
+    const file = await posterPathToFile(path);
+    attachFileToInput('postNowImageFile', file);
+    toast('Content loaded into Post Now', 'success');
+  } catch(e) {
+    toast('Could not load poster image: ' + e.message, 'error');
+  }
 }
 
 function copyText() {
@@ -2405,16 +2456,34 @@ function copyText() {
   navigator.clipboard.writeText(t).then(()=>toast('Copied to clipboard!','success')).catch(()=>toast('Copy failed','error'));
 }
 
-function sendToPostNow() {
+async function sendToPostNow() {
   if(generatedData?.text) document.getElementById('postNowText').value = generatedData.text;
-  if(selectedPosterPath) document.getElementById('postNowImage').value = selectedPosterPath;
   showPage('postnow');
+  if(selectedPosterPath) {
+    toast('Loading poster image...', 'info');
+    try {
+      const file = await posterPathToFile(selectedPosterPath);
+      attachFileToInput('postNowImageFile', file);
+      toast('Ready to post with image', 'success');
+    } catch(e) {
+      toast('Could not load poster: ' + e.message, 'error');
+    }
+  }
 }
 
-function sendToSchedule() {
+async function sendToSchedule() {
   if(generatedData?.text) document.getElementById('schedText').value = generatedData.text;
-  if(selectedPosterPath) document.getElementById('schedImage').value = selectedPosterPath;
   showPage('schedule');
+  if(selectedPosterPath) {
+    toast('Loading poster image...', 'info');
+    try {
+      const file = await posterPathToFile(selectedPosterPath);
+      attachFileToInput('schedImageFile', file);
+      toast('Ready to schedule with image', 'success');
+    } catch(e) {
+      toast('Could not load poster: ' + e.message, 'error');
+    }
+  }
 }
 
 // ═══════════════════════════════════════════════════════
@@ -2473,12 +2542,30 @@ async function postNow() {
   const text = document.getElementById('postNowText').value.trim();
   if(!text) { toast('Post text is required', 'error'); return; }
   setLoading('postNowBtn', true, 'Publishing...');
-  const body = {
-    text,
-    image_path: document.getElementById('postNowImage').value.trim() || null,
-  };
+
+  const profile = await api('/profile', 'GET');
+  const urn = profile?.urn;
+  if(!urn) { toast('LinkedIn not connected. Please authenticate first.', 'error'); setLoading('postNowBtn', false); return; }
+
+  const formData = new FormData();
+  formData.append('text', text);
+  formData.append('urn', urn);
+
+  // Check file upload input first, then fall back to hidden path field
+  const fileInput = document.getElementById('postNowImageFile');
+  const overrideFile = window._posterFileOverride?.['postNowImageFile'];
+  const imageFile = (fileInput?.files?.[0]) || overrideFile || null;
+  if(imageFile) {
+    formData.append('image', imageFile);
+  }
+
   try {
-    await api('/post/now', 'POST', body);
+    const res = await fetch(`${API_BASE}/api/posts/instant`, {
+      method: 'POST',
+      body: formData
+    });
+    const data = await res.json();
+    if(!res.ok) throw { data };
     toast('Posted to LinkedIn!', 'success', 6000);
     document.getElementById('postNowResult').innerHTML = `
       <div class="alert alert-success">✅ Published to LinkedIn successfully!</div>`;
@@ -2500,13 +2587,27 @@ async function schedulePost() {
   if(!text || !dt) { toast('Text and date are required', 'error'); return; }
   const fmtDt = dt.replace('T',' ').slice(0,16);
   setLoading('schedBtn', true, 'Scheduling...');
-  const body = {
-    text, scheduled_datetime: fmtDt,
-    post_type: document.getElementById('schedPostType').value,
-    image_path: document.getElementById('schedImage').value.trim() || null,
-  };
+
+  const formData = new FormData();
+  formData.append('text', text);
+  formData.append('scheduled_datetime', fmtDt);
+  formData.append('post_type', document.getElementById('schedPostType').value);
+
+  // Attach image file if selected
+  const fileInput = document.getElementById('schedImageFile');
+  const overrideFile = window._posterFileOverride?.['schedImageFile'];
+  const imageFile = (fileInput?.files?.[0]) || overrideFile || null;
+  if(imageFile) {
+    formData.append('image', imageFile);
+  }
+
   try {
-    const r = await api('/schedule', 'POST', body);
+    const res = await fetch(`${API_BASE}/schedule`, {
+      method: 'POST',
+      body: formData
+    });
+    const r = await res.json();
+    if(!res.ok) throw { data: r };
     toast('Scheduled for '+fmtDt, 'success');
     document.getElementById('schedResult').innerHTML = `
       <div class="alert alert-success">📅 Scheduled successfully! Job ID: <code style="font-family:var(--font-mono);font-size:11px">${r.job_id}</code></div>`;
