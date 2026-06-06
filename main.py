@@ -2145,13 +2145,13 @@ async def generate(data: GeneratePostIn):
         print("POSTERS CREATED:", len(posters))
         print(posters)
     return {
-        "text":          cleaned_text,
-        "posters": [p[0].replace("\\", "/") for p in posters],
-        "image_sources": [p[1] for p in posters],
-        "image_thumbs":  [img.get("thumb", "") for img in images],
-        "topic":         data.topic,
-        "headline":      headline,
-    }
+    "text":          cleaned_text,
+    "posters":       [p[2] if p[2] else (API_BASE + "/li_cache/" + os.path.basename(p[0])) for p in posters],
+    "image_sources": [p[1] for p in posters],
+    "image_thumbs":  [img.get("thumb", "") for img in images],
+    "topic":         data.topic,
+    "headline":      headline,
+}
 
 
 # ── Image Search ───────────────────────────────────────────────────────────────
@@ -2285,28 +2285,23 @@ async def schedule_job(
             logger.error(f"[Schedule] Image upload error: {e}")
             raise HTTPException(status_code=500, detail=f"Failed to process image: {e}")
 
+# AFTER (fixed)
+    job_id = str(uuid.uuid4())
     job = {
-    "id": str(uuid.uuid4()),
-    "text": text,
-    "image_url": image_url,
-    "status": "awaiting_approval",
-    "datetime": scheduled_time,   # None for immediate posts
-    "created_at": datetime.utcnow().isoformat(),
-
-        # Also store in legacy fields so _post_approved_jobs() can find them
-        "text": text,
-        "datetime": scheduled_datetime,
-        "status": "awaiting_approval",
-        "mode": "manual",
-        "post_type": post_type or "",
-        "urn": urn,
-        "company": profile.get("company", ""),
-        "domain": profile.get("domain", ""),
-        "product": profile.get("product", ""),
-        "created_at": datetime.datetime.utcnow().isoformat(),
-        "requires_approval": True
-    }
-    send_approval_email(job)
+    "id":               job_id,
+    "text":             text,
+    "image_url":        image_url,
+    "datetime":         scheduled_datetime,
+    "status":           "pending",
+    "mode":             "manual",
+    "post_type":        post_type or "",
+    "urn":              urn,
+    "company":          profile.get("company", ""),
+    "domain":           profile.get("domain", ""),
+    "product":          profile.get("product", ""),
+    "approval_email":   profile.get("email", ""),
+    "created_at":       datetime.datetime.utcnow().isoformat(),
+}
     if supabase:
         try:
             supabase.table("scheduled_posts").insert(job).execute()
@@ -2354,9 +2349,15 @@ async def create_campaign(data: CampaignIn):
             "product":     profile.get("product", ""),
             "created_at":  datetime.datetime.utcnow().isoformat(),
         }
-        supabase.table(
-    "scheduled_posts"
-).insert(job).execute()
+      # AFTER (safe)
+    if supabase:
+        try:
+          supabase.table("scheduled_posts").insert(job).execute()
+        except Exception as e:
+            logger.warning(f"[Campaign] Supabase insert failed, using fallback: {e}")
+            save_job(job)
+    else:
+        save_job(job)
         created.append(job_id)
 
     return {
