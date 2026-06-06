@@ -1692,7 +1692,7 @@ app.add_middleware(
 
 @app.get("/")
 def home():
-    return FileResponse("linkedin-studio-pro.html")
+    return FileResponse("linkedin-studio-pro (4).html")
 
 # ── Pydantic Models ────────────────────────────────────────────────────────────
 
@@ -2628,7 +2628,7 @@ async def serve_cache(filename: str):
 
 @app.get("/", response_class=HTMLResponse)
 async def home():
-    for candidate in ["linkedin-studio-pro.html", "index.html", "frontend.html"]:
+    for candidate in ["linkedin-studio-pro (4).html", "index.html", "frontend.html"]:
         if os.path.exists(candidate):
             with open(candidate, encoding="utf-8") as f:
                 return HTMLResponse(content=f.read())
@@ -2637,7 +2637,7 @@ async def home():
 <head><title>LinkedIn Studio PRO v4.0</title></head>
 <body style="background:#03050a;color:#e8f0fc;font-family:system-ui,sans-serif;padding:40px;text-align:center">
   <h1 style="color:#0ea5e9">LinkedIn Studio PRO v4.0</h1>
-  <p style="color:#8aa0bc">Place <code>linkedin-studio-pro.html</code> in the same directory as <code>main.py</code>.</p>
+  <p style="color:#8aa0bc">Place <code>linkedin-studio-pro (4).html</code> in the same directory as <code>main.py</code>.</p>
   <p><a href="/docs" style="color:#0ea5e9">→ View API Docs</a></p>
 </body>
 </html>""")
