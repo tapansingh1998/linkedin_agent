@@ -243,9 +243,9 @@ def save_token(token_data: dict):
 def get_token() -> Optional[str]:
     if supabase:
         try:
-            r = supabase.table("li_tokens").select("access_token").eq("id", "main").single().execute()
-            if r.data:
-                return r.data.get("access_token")
+            r = supabase.table("li_tokens").select("access_token").eq("id", "main").limit(1).execute()
+            if r.data and len(r.data) > 0:
+                return r.data[0].get("access_token")
         except Exception:
             pass
     data = _load_json(_TOKEN_FILE)
@@ -276,9 +276,9 @@ def save_profile(data: dict):
 def get_profile() -> dict:
     if supabase:
         try:
-            r = supabase.table("li_profiles").select("*").eq("id", "main").single().execute()
-            if r.data:
-                return dict(r.data)
+            r = supabase.table("li_profiles").select("*").eq("id", "main").limit(1).execute()
+            if r.data and len(r.data) > 0:
+                return dict(r.data[0])
         except Exception:
             pass
     return _load_json(_PROFILE_FILE) or {}
@@ -384,9 +384,9 @@ def get_approvals(status_filter: str = None) -> list:
 def get_approval_by_id(approval_id: str) -> Optional[dict]:
     if supabase:
         try:
-            r = supabase.table("approvals").select("*").eq("id", approval_id).single().execute()
-            if r.data:
-                return dict(r.data)
+            r = supabase.table("approvals").select("*").eq("id", approval_id).limit(1).execute()
+            if r.data and len(r.data) > 0:
+                return dict(r.data[0])
         except Exception:
             pass
     approvals = _load_json(_APPROVALS_FILE) or []
@@ -1645,18 +1645,11 @@ def run_scheduler_daemon():
     while True:
         try:
             cycle += 1
+            # Every cycle: check for due jobs to post
             _post_approved_jobs()
+            # Every 5 cycles (~2.5 min): check for approval notifications
             if cycle % 5 == 0:
                 _process_approval_notifications()
-            # Self-ping every 10 min to prevent Render sleep
-            if cycle % 20 == 0:
-                try:
-                    http_requests.get(
-                        f"{CONFIG['APP_BASE_URL']}/health",
-                        timeout=5
-                    )
-                except Exception:
-                    pass
         except Exception as loop_err:
             logger.error(f"[Scheduler] Loop error: {loop_err}")
         time.sleep(30)
