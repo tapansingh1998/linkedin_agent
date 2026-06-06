@@ -1548,7 +1548,7 @@ def _process_approval_notifications():
                     "id":           approval_id,
                     "job_id":       job_id,
                     "topic":        topic,
-                    "status":       "pending",
+                    "status":       "awaiting_approval",
                     "variations":   variations,
                     "image_urls":   image_urls,
                     "scheduled_for": job.get("datetime", ""),
@@ -1570,17 +1570,7 @@ def _post_approved_jobs():
     all_jobs = get_all_jobs()
 
     # Jobs eligible to post: 'approved' status and due, OR 'pending' with no approval_email (auto-post)
-    due = [
-        j for j in all_jobs
-        if j.get("status") in ("approved", "pending")
-        and j.get("datetime", "9999") <= now_str
-    ]
-    # Filter out 'pending' jobs that have an approval_email (they need approval first)
-    due = [
-        j for j in due
-        if not (j.get("status") == "pending" and (j.get("approval_email") or profile.get("email")))
-    ]
-
+ 
     for job in due:
         job_id = str(job.get("id", ""))
         urn    = job.get("urn") or profile.get("urn", "")
@@ -2290,17 +2280,17 @@ async def schedule_job(
             raise HTTPException(status_code=500, detail=f"Failed to process image: {e}")
 
     job = {
-        "id": str(uuid.uuid4()),
-        "post_text": text,
-        "image_url": image_url,
-        "linkedin_urn": urn,
-        "scheduled_time": datetime.datetime.strptime(
-            scheduled_datetime, "%Y-%m-%d %H:%M"
-        ).isoformat(),
+    "id": str(uuid.uuid4()),
+    "text": text,
+    "image_url": image_url,
+    "status": "awaiting_approval",
+    "datetime": scheduled_time,   # None for immediate posts
+    "created_at": datetime.utcnow().isoformat()
+
         # Also store in legacy fields so _post_approved_jobs() can find them
         "text": text,
         "datetime": scheduled_datetime,
-        "status": "pending",
+        "status": "awaiting_approval",
         "mode": "manual",
         "post_type": post_type or "",
         "urn": urn,
@@ -2308,8 +2298,9 @@ async def schedule_job(
         "domain": profile.get("domain", ""),
         "product": profile.get("product", ""),
         "created_at": datetime.datetime.utcnow().isoformat(),
+        "requires_approval": True
     }
-
+    send_approval_email(job)
     if supabase:
         try:
             supabase.table("scheduled_posts").insert(job).execute()
