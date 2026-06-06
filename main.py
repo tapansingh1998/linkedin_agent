@@ -1570,7 +1570,13 @@ def _post_approved_jobs():
     all_jobs = get_all_jobs()
 
     # Jobs eligible to post: 'approved' status and due, OR 'pending' with no approval_email (auto-post)
- 
+    due = [
+    j for j in all_jobs
+    if j.get("status") == "approved"
+    and j.get("datetime")
+    and j.get("datetime") <= now_str
+]
+    logger.info(f"[Scheduler] Found {len(due)} approved jobs") 
     for job in due:
         job_id = str(job.get("id", ""))
         urn    = job.get("urn") or profile.get("urn", "")
