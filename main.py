@@ -2285,7 +2285,7 @@ async def schedule_job(
     "image_url": image_url,
     "status": "awaiting_approval",
     "datetime": scheduled_time,   # None for immediate posts
-    "created_at": datetime.utcnow().isoformat()
+    "created_at": datetime.utcnow().isoformat(),
 
         # Also store in legacy fields so _post_approved_jobs() can find them
         "text": text,
