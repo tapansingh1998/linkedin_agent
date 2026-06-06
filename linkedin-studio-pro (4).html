@@ -1,0 +1,3065 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LinkedIn Studio PRO v4.0</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist+Mono:wght@300;400;500;600;700&family=Geist:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* ═══════════════════════════════════════════ DESIGN TOKENS */
+:root {
+  --bg:         #03050a;
+  --bg2:        #060b14;
+  --bg3:        #0a1020;
+  --surface:    #0e1828;
+  --surface2:   #152237;
+  --border:     #1b2d45;
+  --border2:    #243b58;
+  --accent:     #0ea5e9;
+  --accent2:    #38bdf8;
+  --accent3:    #7dd3fc;
+  --green:      #10b981;
+  --green2:     #34d399;
+  --yellow:     #f59e0b;
+  --red:        #ef4444;
+  --purple:     #a855f7;
+  --text:       #e8f0fc;
+  --text2:      #8aa0bc;
+  --text3:      #4a6080;
+  --font-head:  'Instrument Serif', serif;
+  --font-mono:  'Geist Mono', monospace;
+  --font-body:  'Geist', sans-serif;
+  --r:          12px;
+  --r-sm:       8px;
+  --shadow:     0 8px 32px rgba(0,0,0,0.7);
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { scroll-behavior: smooth; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-body);
+  font-size: 14px;
+  line-height: 1.6;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* noise texture */
+body::before {
+  content: '';
+  position: fixed; inset: 0; pointer-events: none; z-index: 0;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='300' height='300' filter='url(%23n)' opacity='0.025'/%3E%3C/svg%3E");
+  opacity: 0.6;
+}
+
+/* ═══════════════════════════════════════════ LAYOUT */
+.app { display: flex; min-height: 100vh; position: relative; z-index: 1; }
+
+/* ═══════════════════════════════════════════ SIDEBAR */
+.sidebar {
+  width: 248px; min-height: 100vh;
+  background: var(--bg2);
+  border-right: 1px solid var(--border);
+  display: flex; flex-direction: column;
+  position: sticky; top: 0; height: 100vh;
+  overflow-y: auto; flex-shrink: 0;
+  z-index: 20;
+}
+
+.logo {
+  padding: 22px 18px 18px;
+  border-bottom: 1px solid var(--border);
+}
+.logo-wordmark {
+  font-family: var(--font-head);
+  font-size: 21px; font-style: italic;
+  color: var(--text);
+  display: flex; align-items: center; gap: 10px;
+  line-height: 1;
+}
+.logo-icon {
+  width: 28px; height: 28px;
+  background: linear-gradient(135deg, #0ea5e9, #a855f7);
+  border-radius: 7px;
+  display: flex; align-items: center; justify-content: center;
+  font-style: normal; font-size: 14px; flex-shrink: 0;
+}
+.logo-badge {
+  font-family: var(--font-mono);
+  font-size: 9px; color: var(--text3);
+  margin-top: 5px; letter-spacing: 0.15em;
+}
+
+.nav { padding: 10px 8px; flex: 1; }
+.nav-section { margin-bottom: 18px; }
+.nav-label {
+  font-family: var(--font-mono);
+  font-size: 9px; font-weight: 600; letter-spacing: 0.18em;
+  color: var(--text3); text-transform: uppercase;
+  padding: 0 10px; margin-bottom: 4px;
+}
+.nav-item {
+  display: flex; align-items: center; gap: 9px;
+  padding: 8px 10px; border-radius: var(--r-sm);
+  cursor: pointer; transition: all 0.12s;
+  color: var(--text2); font-size: 13px; font-weight: 500;
+  position: relative; user-select: none;
+}
+.nav-item:hover { background: var(--surface); color: var(--text); }
+.nav-item.active {
+  background: rgba(14,165,233,0.1);
+  color: var(--accent2);
+}
+.nav-item.active::before {
+  content: '';
+  position: absolute; left: 0; top: 50%; transform: translateY(-50%);
+  width: 3px; height: 55%; background: var(--accent);
+  border-radius: 0 2px 2px 0;
+}
+.nav-icon { font-size: 14px; width: 18px; text-align: center; flex-shrink: 0; }
+.nav-badge {
+  margin-left: auto;
+  background: var(--accent); color: #000;
+  font-size: 9px; font-weight: 700; font-family: var(--font-mono);
+  border-radius: 10px; padding: 1px 7px; min-width: 20px; text-align: center;
+}
+.nav-badge.warn { background: var(--yellow); }
+.nav-badge.alert { background: var(--red); color: #fff; }
+
+.sidebar-bottom {
+  padding: 14px 18px;
+  border-top: 1px solid var(--border);
+  display: flex; flex-direction: column; gap: 5px;
+}
+.status-row {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 11px; color: var(--text3); font-family: var(--font-mono);
+  cursor: default;
+}
+.dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--red); flex-shrink: 0; transition: all 0.3s;
+}
+.dot.ok   { background: var(--green); box-shadow: 0 0 5px var(--green); }
+.dot.warn { background: var(--yellow); }
+
+/* ═══════════════════════════════════════════ MAIN */
+.main { flex: 1; overflow-y: auto; display: flex; flex-direction: column; min-width: 0; }
+
+.topbar {
+  position: sticky; top: 0; z-index: 10;
+  background: rgba(3,5,10,0.88);
+  backdrop-filter: blur(16px) saturate(180%);
+  border-bottom: 1px solid var(--border);
+  padding: 0 28px; height: 58px;
+  display: flex; align-items: center; justify-content: space-between;
+}
+.topbar-title {
+  font-family: var(--font-head);
+  font-size: 18px; font-style: italic; color: var(--text);
+}
+.topbar-actions { display: flex; gap: 8px; align-items: center; }
+.api-url-chip {
+  font-family: var(--font-mono); font-size: 10px; color: var(--text3);
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 20px; padding: 4px 12px;
+}
+
+.content { padding: 28px; flex: 1; max-width: 1280px; }
+.content.hidden { display: none !important; }
+
+/* ═══════════════════════════════════════════ CARDS */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r); padding: 22px;
+  margin-bottom: 18px;
+}
+.card-header {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 18px;
+}
+.card-title {
+  font-family: var(--font-head);
+  font-size: 16px; font-style: italic;
+  display: flex; align-items: center; gap: 8px;
+  color: var(--text);
+}
+.card-subtitle { font-size: 12px; color: var(--text3); margin-top: 2px; }
+.card-glass {
+  background: rgba(14, 24, 40, 0.6);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--border);
+  border-radius: var(--r); padding: 22px; margin-bottom: 18px;
+}
+
+/* ═══════════════════════════════════════════ STATS */
+.stats-grid {
+  display: grid; grid-template-columns: repeat(4,1fr); gap: 14px;
+  margin-bottom: 20px;
+}
+.stat-card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--r); padding: 18px;
+  position: relative; overflow: hidden;
+  transition: border-color 0.2s;
+}
+.stat-card:hover { border-color: var(--border2); }
+.stat-card-line {
+  position: absolute; top: 0; left: 0; right: 0; height: 2px;
+  background: linear-gradient(90deg, var(--accent), transparent);
+}
+.stat-card-line.green  { background: linear-gradient(90deg, var(--green), transparent); }
+.stat-card-line.yellow { background: linear-gradient(90deg, var(--yellow), transparent); }
+.stat-card-line.red    { background: linear-gradient(90deg, var(--red), transparent); }
+.stat-card-line.purple { background: linear-gradient(90deg, var(--purple), transparent); }
+.stat-num {
+  font-family: var(--font-mono);
+  font-size: 30px; font-weight: 600;
+  color: var(--accent2); line-height: 1; margin-top: 2px;
+}
+.stat-label {
+  font-size: 10px; color: var(--text3); margin-top: 5px;
+  text-transform: uppercase; letter-spacing: 0.1em; font-family: var(--font-mono);
+}
+
+/* ═══════════════════════════════════════════ FORM */
+.form-group { margin-bottom: 16px; }
+.form-row   { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.form-row-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; }
+
+label {
+  display: block;
+  font-size: 10px; font-weight: 600; letter-spacing: 0.1em;
+  color: var(--text2); text-transform: uppercase;
+  margin-bottom: 5px; font-family: var(--font-mono);
+}
+input[type="text"], input[type="email"], input[type="datetime-local"],
+input[type="number"], textarea, select {
+  width: 100%; padding: 9px 13px;
+  background: var(--bg3); border: 1px solid var(--border);
+  border-radius: var(--r-sm); color: var(--text);
+  font-family: var(--font-body); font-size: 13px;
+  transition: border-color 0.15s, box-shadow 0.15s; outline: none;
+}
+input:focus, textarea:focus, select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(14,165,233,0.12);
+}
+select option { background: var(--surface); }
+textarea { resize: vertical; min-height: 90px; }
+
+/* ═══════════════════════════════════════════ BUTTONS */
+.btn {
+  padding: 9px 18px; border-radius: var(--r-sm);
+  font-family: var(--font-mono); font-size: 11px;
+  font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase;
+  cursor: pointer; border: none; transition: all 0.13s;
+  display: inline-flex; align-items: center; gap: 7px;
+  white-space: nowrap; user-select: none;
+}
+.btn-primary   { background: var(--accent); color: #000; }
+.btn-primary:hover { background: var(--accent2); transform: translateY(-1px); }
+.btn-secondary { background: transparent; border: 1px solid var(--border2); color: var(--text2); }
+.btn-secondary:hover { border-color: var(--accent); color: var(--accent); }
+.btn-success   { background: rgba(16,185,129,0.12); border:1px solid rgba(16,185,129,0.35); color: var(--green); }
+.btn-success:hover { background: rgba(16,185,129,0.2); }
+.btn-danger    { background: rgba(239,68,68,0.1); border:1px solid rgba(239,68,68,0.28); color: var(--red); }
+.btn-danger:hover { background: rgba(239,68,68,0.18); }
+.btn-purple    { background: rgba(168,85,247,0.12); border:1px solid rgba(168,85,247,0.35); color: var(--purple); }
+.btn-purple:hover { background: rgba(168,85,247,0.22); }
+.btn-linkedin  {
+  background: #0a66c2; color: #fff; font-size: 12px; padding: 11px 22px;
+  border-radius: var(--r-sm); border: none;
+}
+.btn-linkedin:hover { background: #0859ac; transform: translateY(-1px); }
+.btn-sm  { padding: 6px 12px; font-size: 10px; }
+.btn-lg  { padding: 13px 26px; font-size: 12px; }
+.btn:disabled { opacity: 0.38; cursor: not-allowed; transform: none !important; }
+
+/* ═══════════════════════════════════════════ BADGES */
+.badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 2px 9px; border-radius: 20px;
+  font-size: 10px; font-weight: 600; font-family: var(--font-mono);
+  letter-spacing: 0.04em; text-transform: uppercase;
+}
+.badge-green  { background: rgba(16,185,129,0.1); color: var(--green2); border: 1px solid rgba(16,185,129,0.22); }
+.badge-yellow { background: rgba(245,158,11,0.1); color: var(--yellow); border: 1px solid rgba(245,158,11,0.22); }
+.badge-red    { background: rgba(239,68,68,0.1);  color: var(--red);    border: 1px solid rgba(239,68,68,0.22); }
+.badge-blue   { background: rgba(14,165,233,0.1); color: var(--accent2);border: 1px solid rgba(14,165,233,0.22); }
+.badge-purple { background: rgba(168,85,247,0.1); color: var(--purple); border: 1px solid rgba(168,85,247,0.22); }
+
+/* ═══════════════════════════════════════════ AUTH CONNECT */
+.connect-hero {
+  background: linear-gradient(135deg, rgba(14,165,233,0.08), rgba(168,85,247,0.06));
+  border: 1px solid rgba(14,165,233,0.22);
+  border-radius: var(--r); padding: 36px;
+  text-align: center; margin-bottom: 20px;
+  position: relative; overflow: hidden;
+}
+.connect-hero::before {
+  content: '';
+  position: absolute; top: -60px; right: -60px;
+  width: 200px; height: 200px;
+  background: radial-gradient(circle, rgba(14,165,233,0.12), transparent 70%);
+  pointer-events: none;
+}
+.connect-hero h2 {
+  font-family: var(--font-head); font-size: 26px; font-style: italic;
+  margin-bottom: 8px;
+}
+.connect-hero p { color: var(--text2); margin-bottom: 24px; font-size: 14px; }
+.connect-status-chip {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 8px 18px; border-radius: 30px;
+  font-family: var(--font-mono); font-size: 11px; font-weight: 600;
+  margin-top: 16px;
+}
+.connect-status-chip.connected {
+  background: rgba(16,185,129,0.12);
+  border: 1px solid rgba(16,185,129,0.3); color: var(--green2);
+}
+.connect-status-chip.disconnected {
+  background: rgba(239,68,68,0.1);
+  border: 1px solid rgba(239,68,68,0.25); color: var(--red);
+}
+
+/* ═══════════════════════════════════════════ CHIPS / TOGGLE */
+.chip-group { display: flex; flex-wrap: wrap; gap: 7px; }
+.chip {
+  padding: 5px 13px; border-radius: 20px;
+  border: 1px solid var(--border2); color: var(--text3);
+  font-size: 11px; font-weight: 500; cursor: pointer; transition: all 0.12s;
+  font-family: var(--font-mono);
+}
+.chip:hover { border-color: var(--accent); color: var(--accent); }
+.chip.selected { background: rgba(14,165,233,0.12); border-color: var(--accent); color: var(--accent2); }
+
+/* ═══════════════════════════════════════════ TOPIC CARDS */
+.topic-grid {
+  display: grid; grid-template-columns: repeat(auto-fill,minmax(210px,1fr)); gap: 10px;
+  margin-top: 14px;
+}
+.topic-card {
+  background: var(--bg3); border: 1px solid var(--border);
+  border-radius: var(--r-sm); padding: 12px 14px;
+  cursor: pointer; transition: all 0.13s; font-size: 12px;
+  color: var(--text2); line-height: 1.4;
+}
+.topic-card:hover { border-color: var(--accent); color: var(--text); background: var(--surface); }
+.topic-card.selected {
+  border-color: var(--accent); background: rgba(14,165,233,0.08);
+  color: var(--accent2);
+}
+.topic-card-num {
+  font-family: var(--font-mono); font-size: 9px; color: var(--text3);
+  margin-bottom: 4px;
+}
+
+/* ═══════════════════════════════════════════ POSTER GRID */
+.poster-grid {
+  display: grid; grid-template-columns: repeat(auto-fill,minmax(240px,1fr)); gap: 14px;
+  margin-top: 14px;
+}
+.poster-card {
+  background: var(--bg3); border: 2px solid var(--border);
+  border-radius: var(--r); overflow: hidden;
+  cursor: pointer; transition: all 0.18s; position: relative;
+}
+.poster-card:hover { border-color: var(--accent2); transform: translateY(-2px); }
+.poster-card.selected { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(14,165,233,0.18); }
+.poster-card.selected::after {
+  content: '✓ SELECTED';
+  position: absolute; top: 8px; right: 8px;
+  background: var(--accent); color: #000;
+  font-size: 9px; font-weight: 700; padding: 2px 8px; border-radius: 4px;
+  font-family: var(--font-mono);
+}
+.poster-card img { width: 100%; height: 150px; object-fit: cover; display: block; }
+.poster-info { padding: 10px 12px; }
+.poster-source { font-size: 10px; color: var(--text3); font-family: var(--font-mono); }
+.poster-actions { padding: 0 12px 10px; display: flex; gap: 7px; }
+
+/* ═══════════════════════════════════════════ TIMELINE */
+.timeline { position: relative; padding-left: 22px; }
+.timeline::before {
+  content: '';
+  position: absolute; left: 0; top: 0; bottom: 0;
+  width: 2px; background: linear-gradient(180deg, var(--accent), transparent);
+}
+.timeline-item {
+  position: relative; margin-bottom: 16px;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--r); padding: 14px 16px;
+}
+.timeline-item::before {
+  content: '';
+  position: absolute; left: -30px; top: 16px;
+  width: 9px; height: 9px;
+  background: var(--accent); border-radius: 50%;
+  border: 2px solid var(--bg2);
+  box-shadow: 0 0 7px var(--accent);
+}
+.timeline-item.done::before   { background: var(--green); box-shadow: 0 0 7px var(--green); }
+.timeline-item.failed::before { background: var(--red); box-shadow: none; }
+.timeline-meta {
+  font-family: var(--font-mono); font-size: 10px; color: var(--text3);
+  margin-bottom: 5px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+}
+
+/* ═══════════════════════════════════════════ TOAST */
+#toast-container {
+  position: fixed; top: 18px; right: 18px; z-index: 9999;
+  display: flex; flex-direction: column; gap: 8px; pointer-events: none;
+}
+.toast {
+  background: var(--surface2); border: 1px solid var(--border2);
+  border-radius: var(--r-sm); padding: 11px 16px;
+  display: flex; align-items: center; gap: 9px;
+  font-size: 13px; font-weight: 500;
+  box-shadow: var(--shadow);
+  animation: toastIn 0.22s ease; min-width: 260px; max-width: 380px;
+  pointer-events: all;
+}
+.toast.success { border-left: 3px solid var(--green); }
+.toast.error   { border-left: 3px solid var(--red); }
+.toast.info    { border-left: 3px solid var(--accent); }
+@keyframes toastIn { from { opacity:0; transform:translateX(18px); } to { opacity:1; transform:translateX(0); } }
+
+/* ═══════════════════════════════════════════ SPINNER */
+.spinner {
+  width: 14px; height: 14px;
+  border: 2px solid rgba(255,255,255,0.15);
+  border-top-color: currentColor;
+  border-radius: 50%; animation: spin 0.65s linear infinite;
+  display: inline-block; flex-shrink: 0;
+}
+@keyframes spin { to { transform:rotate(360deg); } }
+
+/* ═══════════════════════════════════════════ STEPS */
+.steps { display: flex; align-items: center; margin-bottom: 22px; }
+.step  { display: flex; align-items: center; gap: 8px; }
+.step-dot {
+  width: 28px; height: 28px; border-radius: 50%;
+  background: var(--surface2); border: 1px solid var(--border2);
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--font-mono); font-size: 11px; font-weight: 700; color: var(--text3);
+  flex-shrink: 0; transition: all 0.2s;
+}
+.step-dot.active { background: var(--accent); color: #000; border-color: var(--accent); }
+.step-dot.done   { background: var(--green); color: #000; border-color: var(--green); }
+.step-name { font-size: 12px; color: var(--text3); font-family: var(--font-mono); white-space: nowrap; }
+.step-name.active { color: var(--accent2); font-weight: 600; }
+.step-connector { flex: 1; height: 1px; background: var(--border); margin: 0 10px; min-width: 20px; }
+.step-connector.done { background: var(--green); }
+
+/* ═══════════════════════════════════════════ TABS */
+.tabs { display: flex; gap: 0; border-bottom: 1px solid var(--border); margin-bottom: 20px; }
+.tab {
+  padding: 9px 18px; cursor: pointer;
+  font-size: 11px; font-weight: 600; color: var(--text3);
+  font-family: var(--font-mono); letter-spacing: 0.06em; text-transform: uppercase;
+  border-bottom: 2px solid transparent; margin-bottom: -1px; transition: all 0.13s;
+}
+.tab:hover { color: var(--text2); }
+.tab.active { color: var(--accent2); border-bottom-color: var(--accent); }
+
+/* ═══════════════════════════════════════════ JOB TABLE */
+.job-table { width: 100%; border-collapse: collapse; }
+.job-table th {
+  text-align: left; padding: 9px 12px;
+  font-size: 10px; font-weight: 700; color: var(--text3);
+  letter-spacing: 0.1em; text-transform: uppercase;
+  border-bottom: 1px solid var(--border); font-family: var(--font-mono);
+}
+.job-table td {
+  padding: 10px 12px; border-bottom: 1px solid var(--border);
+  font-size: 12px; vertical-align: middle;
+}
+.job-table tr:last-child td { border-bottom: none; }
+.job-table tr:hover td { background: rgba(14,165,233,0.03); }
+
+/* ═══════════════════════════════════════════ CALENDAR */
+.cal-grid {
+  display: grid; grid-template-columns: repeat(7,1fr); gap: 4px;
+}
+.cal-day-name {
+  font-family: var(--font-mono); font-size: 9px; color: var(--text3);
+  text-align: center; padding: 6px 0; text-transform: uppercase; letter-spacing: 0.1em;
+}
+.cal-cell {
+  min-height: 68px; background: var(--bg3); border: 1px solid var(--border);
+  border-radius: 6px; padding: 6px; cursor: pointer; transition: border-color 0.13s;
+  position: relative;
+}
+.cal-cell:hover { border-color: var(--border2); }
+.cal-cell.other-month { opacity: 0.3; }
+.cal-cell.today { border-color: var(--accent); }
+.cal-cell.has-posts { border-color: var(--border2); }
+.cal-date {
+  font-family: var(--font-mono); font-size: 11px; color: var(--text3);
+  margin-bottom: 3px; font-weight: 600;
+}
+.cal-cell.today .cal-date { color: var(--accent2); }
+.cal-post-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  display: inline-block; margin: 1px;
+}
+.cal-post-dot.green  { background: var(--green); }
+.cal-post-dot.yellow { background: var(--yellow); }
+.cal-post-dot.red    { background: var(--red); }
+.cal-post-dot.blue   { background: var(--accent); }
+.cal-nav {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 14px;
+}
+.cal-month-label {
+  font-family: var(--font-head); font-size: 18px; font-style: italic;
+}
+
+/* ═══════════════════════════════════════════ APPROVAL CARDS */
+.approval-card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--r); padding: 18px; margin-bottom: 12px;
+  transition: border-color 0.15s;
+}
+.approval-card:hover { border-color: var(--border2); }
+.approval-card.pending { border-left: 3px solid var(--yellow); }
+.approval-card.approved { border-left: 3px solid var(--green); }
+.approval-card.rejected { border-left: 3px solid var(--red); }
+.approval-card-meta {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  font-family: var(--font-mono); font-size: 10px; color: var(--text3);
+  margin-bottom: 8px;
+}
+.approval-variation {
+  background: var(--bg3); border: 1px solid var(--border);
+  border-radius: var(--r-sm); padding: 12px; margin-bottom: 8px; cursor: pointer;
+  transition: border-color 0.13s; font-size: 12px; color: var(--text2); line-height: 1.6;
+  white-space: pre-wrap;
+}
+.approval-variation:hover   { border-color: var(--accent); }
+.approval-variation.chosen  { border-color: var(--accent); background: rgba(14,165,233,0.07); }
+.variation-label {
+  font-family: var(--font-mono); font-size: 10px; color: var(--accent);
+  margin-bottom: 6px; font-weight: 700;
+}
+
+/* ═══════════════════════════════════════════ IMAGE BROWSER */
+.image-browser-grid {
+  display: grid; grid-template-columns: repeat(auto-fill,minmax(180px,1fr)); gap: 10px;
+  margin-top: 12px;
+}
+.img-thumb {
+  border: 2px solid var(--border); border-radius: var(--r-sm);
+  overflow: hidden; cursor: pointer; transition: all 0.14s;
+  position: relative; aspect-ratio: 16/10;
+}
+.img-thumb:hover { border-color: var(--accent2); transform: scale(1.02); }
+.img-thumb.selected { border-color: var(--accent); }
+.img-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.img-thumb-info {
+  position: absolute; bottom: 0; left: 0; right: 0;
+  background: linear-gradient(0deg, rgba(0,0,0,0.8), transparent);
+  padding: 6px 8px; font-size: 9px; color: rgba(255,255,255,0.7);
+  font-family: var(--font-mono);
+}
+.img-thumb-check {
+  position: absolute; top: 5px; right: 5px;
+  width: 20px; height: 20px; border-radius: 50%;
+  background: var(--accent); display: none; align-items: center; justify-content: center;
+  font-size: 10px; font-weight: 700; color: #000;
+}
+.img-thumb.selected .img-thumb-check { display: flex; }
+
+/* ═══════════════════════════════════════════ TEXT PREVIEW */
+.text-preview {
+  background: var(--bg3); border: 1px solid var(--border);
+  border-radius: var(--r-sm); padding: 14px;
+  font-size: 13px; line-height: 1.75; color: var(--text2);
+  white-space: pre-wrap; word-break: break-word;
+  max-height: 280px; overflow-y: auto;
+}
+
+/* ═══════════════════════════════════════════ GRADIENT PICKER */
+.gradient-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: 7px; }
+.gradient-swatch {
+  height: 38px; border-radius: 6px;
+  cursor: pointer; border: 2px solid transparent;
+  transition: all 0.14s; position: relative;
+}
+.gradient-swatch:hover   { transform: scale(1.05); }
+.gradient-swatch.selected { border-color: #fff; box-shadow: 0 0 0 2px var(--accent); }
+.gradient-swatch-label {
+  font-size: 8px; color: var(--text3); text-align: center;
+  margin-top: 3px; font-family: var(--font-mono);
+}
+
+/* ═══════════════════════════════════════════ PROGRESS */
+.progress-bar { height: 3px; background: var(--surface2); border-radius: 2px; overflow: hidden; margin-top: 6px; }
+.progress-fill { height: 100%; background: linear-gradient(90deg, var(--accent), var(--purple)); transition: width 0.35s ease; }
+
+/* ═══════════════════════════════════════════ ALERTS */
+.alert {
+  padding: 10px 14px; border-radius: var(--r-sm);
+  font-size: 12px; margin-bottom: 14px;
+  display: flex; gap: 8px; align-items: flex-start; line-height: 1.5;
+}
+.alert-info    { background: rgba(14,165,233,0.08); border: 1px solid rgba(14,165,233,0.2); color: var(--accent3); }
+.alert-warn    { background: rgba(245,158,11,0.08); border: 1px solid rgba(245,158,11,0.2); color: var(--yellow); }
+.alert-success { background: rgba(16,185,129,0.08); border: 1px solid rgba(16,185,129,0.2); color: var(--green2); }
+.alert-error   { background: rgba(239,68,68,0.08);  border: 1px solid rgba(239,68,68,0.2);  color: var(--red); }
+
+/* ═══════════════════════════════════════════ EMPTY STATE */
+.empty-state { text-align: center; padding: 52px 20px; color: var(--text3); }
+.empty-icon  { font-size: 44px; margin-bottom: 14px; opacity: 0.35; }
+.empty-title { font-family: var(--font-head); font-size: 17px; font-style: italic; color: var(--text2); margin-bottom: 6px; }
+.empty-text  { font-size: 12px; }
+
+/* ═══════════════════════════════════════════ MODAL */
+.modal-overlay {
+  position: fixed; inset: 0; z-index: 1000;
+  background: rgba(0,0,0,0.75); backdrop-filter: blur(6px);
+  display: flex; align-items: center; justify-content: center;
+}
+.modal-overlay.hidden { display: none; }
+.modal {
+  background: var(--surface); border: 1px solid var(--border2);
+  border-radius: var(--r); padding: 26px;
+  width: 94%; max-width: 640px; max-height: 88vh; overflow-y: auto;
+  box-shadow: var(--shadow);
+  animation: modalIn 0.2s ease;
+}
+.modal-lg { max-width: 860px; }
+@keyframes modalIn { from { opacity:0; transform:scale(0.96) translateY(8px); } to { opacity:1; transform:scale(1) translateY(0); } }
+.modal-title {
+  font-family: var(--font-head); font-size: 20px; font-style: italic;
+  margin-bottom: 18px; display: flex; justify-content: space-between; align-items: center;
+}
+.modal-close { cursor: pointer; color: var(--text3); font-size: 20px; line-height: 1; font-style: normal; }
+.modal-close:hover { color: var(--text); }
+
+/* ═══════════════════════════════════════════ REWRITE STYLE BUTTONS */
+.rewrite-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 8px; margin-bottom: 14px; }
+.rewrite-btn {
+  padding: 9px 10px; border-radius: var(--r-sm);
+  border: 1px solid var(--border); background: var(--bg3);
+  cursor: pointer; transition: all 0.13s; text-align: center;
+  font-size: 11px; font-family: var(--font-mono); color: var(--text2);
+  font-weight: 500;
+}
+.rewrite-btn:hover { border-color: var(--accent); color: var(--accent); }
+.rewrite-btn.active { border-color: var(--accent); background: rgba(14,165,233,0.1); color: var(--accent2); }
+
+/* ═══════════════════════════════════════════ MINI CHART */
+.mini-chart { display: flex; align-items: flex-end; gap: 4px; height: 60px; }
+.mini-bar {
+  flex: 1; background: rgba(14,165,233,0.25);
+  border-radius: 3px 3px 0 0; transition: height 0.3s ease;
+  cursor: default; min-height: 4px;
+  position: relative;
+}
+.mini-bar:hover { background: rgba(14,165,233,0.5); }
+.mini-bar-label {
+  font-family: var(--font-mono); font-size: 8px; color: var(--text3);
+  text-align: center; margin-top: 4px;
+}
+
+/* ═══════════════════════════════════════════ SKELETON */
+.skeleton {
+  background: linear-gradient(90deg, var(--surface), var(--surface2), var(--surface));
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite; border-radius: 6px;
+}
+@keyframes shimmer { 0%{background-position:200% 0} 100%{background-position:-200% 0} }
+
+/* ═══════════════════════════════════════════ SCROLLBAR */
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: var(--bg2); }
+::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+
+/* ═══════════════════════════════════════════ UTILITY */
+.hidden { display: none !important; }
+.flex   { display: flex; }
+.items-center { align-items: center; }
+.justify-between { justify-content: space-between; }
+.gap-2  { gap: 8px; }
+.gap-3  { gap: 12px; }
+.mt-1   { margin-top: 4px; }
+.mt-2   { margin-top: 8px; }
+.mt-3   { margin-top: 12px; }
+.mb-2   { margin-bottom: 8px; }
+.mb-3   { margin-bottom: 12px; }
+.text-sm  { font-size: 12px; }
+.text-xs  { font-size: 10px; font-family: var(--font-mono); }
+.text-muted  { color: var(--text3); }
+.text-accent { color: var(--accent2); }
+.fw-600  { font-weight: 600; }
+.w-full  { width: 100%; }
+.text-green  { color: var(--green2); }
+.text-red    { color: var(--red); }
+.text-yellow { color: var(--yellow); }
+hr { border: none; border-top: 1px solid var(--border); margin: 18px 0; }
+
+/* ═══════════════════════════════════════════ RESPONSIVE */
+@media (max-width: 900px) {
+  .sidebar { width: 200px; }
+  .stats-grid { grid-template-columns: repeat(2,1fr); }
+  .form-row   { grid-template-columns: 1fr; }
+  .form-row-3 { grid-template-columns: 1fr 1fr; }
+}
+@media (max-width: 640px) {
+  .sidebar { position: fixed; left: -248px; transition: left 0.25s; }
+  .sidebar.open { left: 0; }
+  .main { margin-left: 0; }
+  .content { padding: 16px; }
+  .stats-grid { grid-template-columns: 1fr 1fr; }
+  .gradient-grid { grid-template-columns: repeat(3,1fr); }
+  .rewrite-grid  { grid-template-columns: repeat(2,1fr); }
+}
+
+/* ═══════════════════════════════════════════ LINKEDIN CONNECTED PILL */
+.li-connected-pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px 14px; border-radius: 20px;
+  background: rgba(16,185,129,0.1); border: 1px solid rgba(16,185,129,0.3);
+  font-family: var(--font-mono); font-size: 11px; color: var(--green2);
+}
+.li-name { font-weight: 600; }
+
+/* Day cards for campaign */
+.day-cards { display: grid; grid-template-columns: repeat(5,1fr); gap: 8px; margin-top: 14px; }
+.day-card {
+  background: var(--bg3); border: 1px solid var(--border);
+  border-radius: var(--r-sm); padding: 10px; text-align: center;
+}
+.day-card-num  { font-family: var(--font-mono); font-size: 18px; font-weight: 700; color: var(--accent2); }
+.day-card-date { font-size: 10px; color: var(--text3); margin-top: 3px; }
+.day-card-time { font-size: 11px; color: var(--yellow); margin-top: 2px; font-family: var(--font-mono); }
+.day-card.approved { border-color: var(--green); background: rgba(16,185,129,0.05); }
+.day-card.approved .day-card-num { color: var(--green2); }
+</style>
+</head>
+<body>
+
+<!-- ══════════════════ TOAST CONTAINER ══════════════════ -->
+<div id="toast-container"></div>
+
+<!-- ══════════════════ DAY DETAIL MODAL ══════════════════ -->
+<div class="modal-overlay hidden" id="calDayModal">
+  <div class="modal">
+    <div class="modal-title">
+      <span id="calDayTitle" style="font-style:italic">Posts for this day</span>
+      <span class="modal-close" onclick="closeModal('calDayModal')">×</span>
+    </div>
+    <div id="calDayContent"></div>
+  </div>
+</div>
+
+<!-- ══════════════════ APPROVAL DETAIL MODAL ══════════════════ -->
+<div class="modal-overlay hidden" id="approvalModal">
+  <div class="modal modal-lg">
+    <div class="modal-title">
+      <span id="approvalModalTitle">Review &amp; Approve Post</span>
+      <span class="modal-close" onclick="closeModal('approvalModal')">×</span>
+    </div>
+    <div id="approvalModalContent"></div>
+  </div>
+</div>
+
+<!-- ══════════════════ IMAGE EDITOR MODAL ══════════════════ -->
+<div class="modal-overlay hidden" id="imgEditorModal">
+  <div class="modal modal-lg">
+    <div class="modal-title">
+      <span>Image Editor</span>
+      <span class="modal-close" onclick="closeModal('imgEditorModal')">×</span>
+    </div>
+    <div id="imgEditorContent"></div>
+  </div>
+</div>
+
+<!-- ══════════════════ APP ══════════════════ -->
+<div class="app">
+
+<!-- ────────────────── SIDEBAR ────────────────── -->
+<aside class="sidebar" id="sidebar">
+  <div class="logo">
+    <div class="logo-wordmark">
+      <div class="logo-icon">Ln</div>
+      LinkedIn Studio
+    </div>
+    <div class="logo-badge">PRO v4.0 · AI ENGINE</div>
+  </div>
+
+  <nav class="nav">
+    <div class="nav-section">
+      <div class="nav-label">Overview</div>
+      <div class="nav-item active" onclick="showPage('dashboard')" id="nav-dashboard">
+        <span class="nav-icon">⚡</span> Dashboard
+      </div>
+    </div>
+
+    <div class="nav-section">
+      <div class="nav-label">Account</div>
+      <div class="nav-item" onclick="showPage('auth')" id="nav-auth">
+        <span class="nav-icon">🔗</span> LinkedIn
+        <span class="nav-badge alert hidden" id="authBadge">!</span>
+      </div>
+      <div class="nav-item" onclick="showPage('profile')" id="nav-profile">
+        <span class="nav-icon">🏢</span> Brand Profile
+      </div>
+    </div>
+
+    <div class="nav-section">
+      <div class="nav-label">Create</div>
+      <div class="nav-item" onclick="showPage('generate')" id="nav-generate">
+        <span class="nav-icon">✨</span> Generate Post
+      </div>
+      <div class="nav-item" onclick="showPage('topics')" id="nav-topics">
+        <span class="nav-icon">💡</span> AI Topics
+      </div>
+      <div class="nav-item" onclick="showPage('images')" id="nav-images">
+        <span class="nav-icon">🖼</span> Image Browser
+      </div>
+      <div class="nav-item" onclick="showPage('postnow')" id="nav-postnow">
+        <span class="nav-icon">🚀</span> Post Now
+      </div>
+    </div>
+
+    <div class="nav-section">
+      <div class="nav-label">Schedule</div>
+      <div class="nav-item" onclick="showPage('schedule')" id="nav-schedule">
+        <span class="nav-icon">📅</span> Schedule Post
+      </div>
+      <div class="nav-item" onclick="showPage('campaign')" id="nav-campaign">
+        <span class="nav-icon">🎯</span> AI Campaign
+      </div>
+      <div class="nav-item" onclick="showPage('calendar')" id="nav-calendar">
+        <span class="nav-icon">🗓</span> Calendar
+      </div>
+    </div>
+
+    <div class="nav-section">
+      <div class="nav-label">Manage</div>
+      <div class="nav-item" onclick="showPage('approvals')" id="nav-approvals">
+        <span class="nav-icon">✅</span> Approval Center
+        <span class="nav-badge warn hidden" id="approvalBadge">0</span>
+      </div>
+      <div class="nav-item" onclick="showPage('jobs')" id="nav-jobs">
+        <span class="nav-icon">📋</span> Job Queue
+        <span class="nav-badge" id="jobsBadge">0</span>
+      </div>
+      <div class="nav-item" onclick="showPage('analytics')" id="nav-analytics">
+        <span class="nav-icon">📊</span> Analytics
+      </div>
+    </div>
+
+    <div class="nav-section">
+      <div class="nav-label">System</div>
+      <div class="nav-item" onclick="showPage('settings')" id="nav-settings">
+        <span class="nav-icon">⚙</span> Settings
+      </div>
+    </div>
+  </nav>
+
+  <div class="sidebar-bottom">
+    <div class="status-row"><div class="dot" id="dotLinkedin"></div>LinkedIn</div>
+    <div class="status-row"><div class="dot" id="dotGemini"></div>Gemini AI</div>
+    <div class="status-row"><div class="dot" id="dotSupabase"></div>Supabase</div>
+    <div class="status-row"><div class="dot" id="dotProfile"></div>Profile Set</div>
+  </div>
+</aside>
+
+<!-- ────────────────── MAIN ────────────────── -->
+<main class="main">
+
+  <div class="topbar">
+    <div class="topbar-title" id="pageTitle">Dashboard</div>
+    <div class="topbar-actions">
+      <div class="api-url-chip" id="apiUrlChip">localhost:8000</div>
+      <button class="btn btn-secondary btn-sm" onclick="showPage('settings')">⚙ Config</button>
+      <button class="btn btn-primary btn-sm" onclick="refreshAll()">↻ Refresh</button>
+    </div>
+  </div>
+
+  <!-- ══════════ DASHBOARD ══════════ -->
+  <div class="content" id="page-dashboard">
+    <div id="healthBanner"></div>
+
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-card-line"></div>
+        <div class="stat-num" id="statTotal">—</div>
+        <div class="stat-label">Total Jobs</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-card-line yellow"></div>
+        <div class="stat-num" style="color:var(--yellow)" id="statPending">—</div>
+        <div class="stat-label">Pending</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-card-line green"></div>
+        <div class="stat-num" style="color:var(--green2)" id="statPosted">—</div>
+        <div class="stat-label">Posted</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-card-line red"></div>
+        <div class="stat-num" style="color:var(--red)" id="statFailed">—</div>
+        <div class="stat-label">Failed</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <div>
+          <div class="card-title">⚙️ System Status</div>
+          <div class="card-subtitle">Service connections &amp; integration health</div>
+        </div>
+        <button class="btn btn-secondary btn-sm" onclick="refreshAll()">↻ Refresh</button>
+      </div>
+      <div id="statusGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px">
+        <div class="skeleton" style="height:80px;border-radius:var(--r)"></div>
+        <div class="skeleton" style="height:80px;border-radius:var(--r)"></div>
+        <div class="skeleton" style="height:80px;border-radius:var(--r)"></div>
+        <div class="skeleton" style="height:80px;border-radius:var(--r)"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">🚦 Quick Actions</div>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px">
+        <button class="btn btn-primary" onclick="showPage('generate')">✨ Generate Post</button>
+        <button class="btn btn-secondary" onclick="showPage('topics')">💡 AI Topics</button>
+        <button class="btn btn-secondary" onclick="showPage('campaign')">🎯 New Campaign</button>
+        <button class="btn btn-secondary" onclick="showPage('calendar')">🗓 Calendar</button>
+        <button class="btn btn-secondary" onclick="showPage('approvals')">✅ Approvals</button>
+        <button class="btn btn-danger btn-sm" onclick="clearAllJobs()">🗑 Clear Jobs</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">📋 Recent Activity</div>
+        <button class="btn btn-secondary btn-sm" onclick="showPage('jobs')">View All →</button>
+      </div>
+      <div id="recentJobs">
+        <div class="empty-state">
+          <div class="empty-icon">📭</div>
+          <div class="empty-title">No jobs yet</div>
+          <div class="empty-text">Start by generating a post or creating a campaign</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════ AUTH ══════════ -->
+  <div class="content hidden" id="page-auth">
+
+    <div class="connect-hero" id="authHeroCard">
+      <h2>Connect LinkedIn Account</h2>
+      <p>One click to connect. No tokens, no manual steps. Just sign in and you're done.</p>
+
+      <div id="authNotConnected">
+        <button class="btn btn-linkedin btn-lg" onclick="connectLinkedIn()" id="connectBtn">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" style="flex-shrink:0"><path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/></svg>
+          Connect LinkedIn
+        </button>
+        <div style="margin-top:14px;font-size:12px;color:var(--text3)">
+          You'll be redirected to LinkedIn to sign in, then brought back here automatically.
+        </div>
+      </div>
+
+      <div id="authConnected" class="hidden">
+        <div class="li-connected-pill" style="justify-content:center;margin:0 auto">
+          <div class="dot ok"></div>
+          <span>Connected as</span>
+          <span class="li-name" id="liUserName">—</span>
+        </div>
+        <div style="margin-top:14px;display:flex;justify-content:center;gap:10px">
+          <button class="btn btn-secondary btn-sm" onclick="disconnectLinkedIn()">Disconnect</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title mb-3">How OAuth Works</div>
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <div style="display:flex;gap:12px;align-items:flex-start">
+          <div style="width:24px;height:24px;border-radius:50%;background:rgba(14,165,233,0.15);border:1px solid var(--accent);display:flex;align-items:center;justify-content:center;flex-shrink:0;font-family:var(--font-mono);font-size:10px;font-weight:700;color:var(--accent2)">1</div>
+          <div><div style="font-weight:600;font-size:13px">Click "Connect LinkedIn"</div><div style="font-size:12px;color:var(--text3)">Opens a popup or redirect to LinkedIn's login page</div></div>
+        </div>
+        <div style="display:flex;gap:12px;align-items:flex-start">
+          <div style="width:24px;height:24px;border-radius:50%;background:rgba(14,165,233,0.15);border:1px solid var(--accent);display:flex;align-items:center;justify-content:center;flex-shrink:0;font-family:var(--font-mono);font-size:10px;font-weight:700;color:var(--accent2)">2</div>
+          <div><div style="font-weight:600;font-size:13px">Sign in on LinkedIn</div><div style="font-size:12px;color:var(--text3)">Authorize LinkedIn Studio PRO to post on your behalf</div></div>
+        </div>
+        <div style="display:flex;gap:12px;align-items:flex-start">
+          <div style="width:24px;height:24px;border-radius:50%;background:rgba(14,165,233,0.15);border:1px solid var(--accent);display:flex;align-items:center;justify-content:center;flex-shrink:0;font-family:var(--font-mono);font-size:10px;font-weight:700;color:var(--accent2)">3</div>
+          <div><div style="font-weight:600;font-size:13px">Automatic token storage</div><div style="font-size:12px;color:var(--text3)">Backend exchanges code for token — you never see it</div></div>
+        </div>
+        <div style="display:flex;gap:12px;align-items:flex-start">
+          <div style="width:24px;height:24px;border-radius:50%;background:rgba(16,185,129,0.15);border:1px solid var(--green);display:flex;align-items:center;justify-content:center;flex-shrink:0;font-family:var(--font-mono);font-size:10px;font-weight:700;color:var(--green2)">✓</div>
+          <div><div style="font-weight:600;font-size:13px">LinkedIn Connected ✅</div><div style="font-size:12px;color:var(--text3)">Dashboard status updates automatically</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════ BRAND PROFILE ══════════ -->
+  <div class="content hidden" id="page-profile">
+    <div class="card">
+      <div class="card-header">
+        <div>
+          <div class="card-title">🏢 Brand Profile</div>
+          <div class="card-subtitle">AI uses this context to generate domain-aware posts</div>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label>Account Type</label>
+        <div class="chip-group">
+          <div class="chip selected" id="ut-individual" onclick="selectUserType('individual')">👤 Individual</div>
+          <div class="chip" id="ut-company" onclick="selectUserType('company')">🏢 Company</div>
+        </div>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label>Your Name / Display Name</label>
+          <input type="text" id="pName" placeholder="e.g. Alex Chen">
+        </div>
+        <div class="form-group">
+          <label>Company / Organization</label>
+          <input type="text" id="pCompany" placeholder="e.g. Acme Corp">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Industry / Domain</label>
+          <input type="text" id="pDomain" placeholder="e.g. AI / SaaS / FinTech / Healthcare">
+        </div>
+        <div class="form-group">
+          <label>Product / Service</label>
+          <input type="text" id="pProduct" placeholder="e.g. analytics platform, consulting, mobile app">
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Approval Notification Email</label>
+        <input type="email" id="pEmail" placeholder="you@company.com (for campaign approval emails)">
+      </div>
+
+      <button class="btn btn-primary btn-lg" onclick="saveProfile()">💾 Save Profile</button>
+    </div>
+
+    <div class="card hidden" id="profilePreviewCard">
+      <div class="card-title mb-3">Profile Preview</div>
+      <div id="profilePreview"></div>
+    </div>
+  </div>
+  <div class="alert alert-info" id="topicProfileInfo">
+
+
+  <!-- ══════════ AI TOPICS ══════════ -->
+  <div class="content hidden" id="page-topics">
+    <div class="card">
+      <div class="card-header">
+        <div>
+          <div class="card-title">💡 AI Topic Generator</div>
+          <div class="card-subtitle">Generate 10-30 high-quality LinkedIn post topics for your niche</div>
+        </div>
+      </div>
+
+      <div class="alert alert-info" id="topicProfileInfo">
+
+  <div><b>Company:</b> <span id="topicCompany">-</span></div>
+
+  <div><b>Domain:</b> <span id="topicDomainText">-</span></div>
+
+  <div><b>Product:</b> <span id="topicProductText">-</span></div>
+
+</div>
+      <button
+  class="btn btn-primary btn-lg"
+  onclick="generateTopics()"
+  id="genTopicsBtn">
+
+  💡 Generate AI Topics
+
+</button>
+<div id="topicsContainer"
+     style="margin-top:20px;">
+</div>
+    </div>
+
+    <div class="card hidden" id="topicsResultCard">
+      <div class="card-header">
+        <div>
+          <div class="card-title">Generated Topics</div>
+          <div class="card-subtitle" id="topicsCountLabel">Click a topic to use it</div>
+        </div>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-secondary btn-sm" onclick="generateTopics()">↻ Regenerate</button>
+          <button class="btn btn-primary btn-sm" onclick="useSelectedTopic()">✨ Generate Post →</button>
+        </div>
+      </div>
+      <div class="topic-grid" id="topicsGrid"></div>
+    </div>
+  </div>
+
+  <!-- ══════════ IMAGE BROWSER ══════════ -->
+  <div class="content hidden" id="page-images">
+    <div class="card">
+      <div class="card-header">
+        <div>
+          <div class="card-title">🖼 Image Browser</div>
+          <div class="card-subtitle">Pixabay &amp; Pexels — real stock photos for your posts</div>
+        </div>
+      </div>
+      <div style="display:flex;gap:8px">
+        <input type="text" id="imgSearchQuery" placeholder="Search: business, AI, technology, team..." style="flex:1">
+        <select id="imgSearchCount" style="width:100px">
+          <option value="6">6 images</option>
+          <option value="9" selected>9 images</option>
+          <option value="12">12 images</option>
+        </select>
+        <button class="btn btn-primary" onclick="searchImages()" id="imgSearchBtn">🔍 Search</button>
+      </div>
+    </div>
+
+    <div id="imgResultsArea">
+      <div class="empty-state">
+        <div class="empty-icon">🖼</div>
+        <div class="empty-title">Search for images above</div>
+        <div class="empty-text">Powered by Pixabay &amp; Pexels APIs</div>
+      </div>
+    </div>
+
+    <!-- Image Editor Panel -->
+    <div class="card hidden" id="imgEditorPanel">
+      <div class="card-header">
+        <div class="card-title">🎨 Image Editor</div>
+        <button class="btn btn-secondary btn-sm" onclick="document.getElementById('imgEditorPanel').classList.add('hidden')">Close</button>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 280px;gap:18px">
+        <div>
+          <img id="editorPreview" src="" alt="Preview" style="max-width:100%;border-radius:var(--r-sm);border:1px solid var(--border)">
+        </div>
+        <div>
+          <div class="form-group">
+            <label>Brightness <span id="brightVal">1.0</span></label>
+            <input type="range" id="editBrightness" min="0.3" max="2.0" step="0.05" value="1.0"
+              oninput="document.getElementById('brightVal').textContent=this.value"
+              style="width:100%;background:transparent">
+          </div>
+          <div class="form-group">
+            <label>Contrast <span id="contrastVal">1.0</span></label>
+            <input type="range" id="editContrast" min="0.3" max="2.0" step="0.05" value="1.0"
+              oninput="document.getElementById('contrastVal').textContent=this.value"
+              style="width:100%;background:transparent">
+          </div>
+          <div class="form-group">
+            <label>Blur <span id="blurVal">0</span>px</label>
+            <input type="range" id="editBlur" min="0" max="10" step="0.5" value="0"
+              oninput="document.getElementById('blurVal').textContent=this.value"
+              style="width:100%;background:transparent">
+          </div>
+          <div class="form-group">
+            <label>Watermark Text</label>
+            <input type="text" id="editWatermark" placeholder="© Your Brand">
+          </div>
+          <div class="form-group">
+            <label>Text Overlay</label>
+            <input type="text" id="editTextOverlay" placeholder="Overlay text">
+          </div>
+          <button class="btn btn-primary w-full" onclick="applyImageEdits()" id="applyEditBtn">Apply Edits</button>
+          <div style="margin-top:8px;font-size:10px;color:var(--text3);text-align:center;font-family:var(--font-mono)">
+            Edits are applied server-side via PIL
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════ GENERATE POST ══════════ -->
+  <div class="content hidden" id="page-generate">
+    <div class="card">
+      <div class="card-header">
+        <div>
+          <div class="card-title">✨ Generate Post</div>
+          <div class="card-subtitle">AI creates LinkedIn-optimized content for your brand</div>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label>Topic</label>
+        <input type="text" id="genTopic" placeholder="e.g. How AI is transforming enterprise workflows in 2025">
+        <div style="font-size:10px;color:var(--text3);margin-top:4px;font-family:var(--font-mono)">
+          💡 Use <a href="#" onclick="showPage('topics');return false" style="color:var(--accent)">AI Topics</a> to generate topic ideas
+        </div>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label>Post Type</label>
+          <select id="genPostType"></select>
+        </div>
+        <div class="form-group">
+          <label>Tone</label>
+          <select id="genTone"></select>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Visual Mood</label>
+          <select id="genMood"></select>
+        </div>
+        <div class="form-group">
+          <label>Images to Generate</label>
+          <select id="genImageCount">
+            <option value="0">Text Only</option>
+            <option value="1">1 image</option>
+            <option value="2" selected>2 images</option>
+            <option value="3">3 images</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label>Gradient Style</label>
+        <div class="gradient-grid" id="gradientGrid"></div>
+      </div>
+
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn btn-primary btn-lg" onclick="generatePost()" id="genBtn">✨ Generate Full Post</button>
+        <button class="btn btn-secondary" onclick="generatePost(true)" id="genTextBtn">📝 Text Only</button>
+      </div>
+    </div>
+
+    <!-- Result -->
+    <div class="card hidden" id="genResultCard">
+      <div class="card-header">
+        <div class="card-title">📝 Generated Content</div>
+        <div style="display:flex;gap:7px;flex-wrap:wrap">
+          <button class="btn btn-secondary btn-sm" onclick="copyText()">📋 Copy</button>
+          <button class="btn btn-purple btn-sm" onclick="openRewriteModal()">✏️ Rewrite</button>
+          <button class="btn btn-primary btn-sm" onclick="sendToPostNow()">🚀 Post Now</button>
+          <button class="btn btn-success btn-sm" onclick="sendToSchedule()">📅 Schedule</button>
+        </div>
+      </div>
+      <div class="text-preview" id="genResultText"></div>
+      <hr>
+      <div class="card-title mb-3" style="font-size:15px">🖼 Generated Poster Images</div>
+      <div class="poster-grid" id="genPosterGrid"></div>
+    </div>
+  </div>
+
+  <!-- ══════════ POST NOW ══════════ -->
+  <div class="content hidden" id="page-postnow">
+    <div class="card">
+      <div class="card-header">
+        <div>
+          <div class="card-title">🚀 Post to LinkedIn Now</div>
+          <div class="card-subtitle">Publishes immediately to your connected account</div>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Post Text</label>
+        <textarea id="postNowText" rows="8" placeholder="Write your post...&#10;&#10;You can paste generated content here or write manually."></textarea>
+      </div>
+      <div class="form-group">
+        <label>Image Path (optional)</label>
+        <input type="text" id="postNowImage" placeholder="e.g. li_cache/poster_0_1234567890.png">
+        <div style="font-size:10px;color:var(--text3);margin-top:4px">Use file path from generated poster</div>
+      </div>
+      <div style="display:flex;gap:10px">
+        <button class="btn btn-primary btn-lg" onclick="postNow()" id="postNowBtn">🚀 Publish to LinkedIn</button>
+        <button class="btn btn-secondary" onclick="showPage('generate')">← Generator</button>
+      </div>
+    </div>
+    <div id="postNowResult"></div>
+  </div>
+
+  <!-- ══════════ SCHEDULE SINGLE ══════════ -->
+  <div class="content hidden" id="page-schedule">
+    <div class="card">
+      <div class="card-header">
+        <div>
+          <div class="card-title">📅 Schedule a Post</div>
+          <div class="card-subtitle">Queue a post for future automatic publishing</div>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Post Text</label>
+        <textarea id="schedText" rows="7" placeholder="Your LinkedIn post content..."></textarea>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Schedule Date &amp; Time</label>
+          <input type="datetime-local" id="schedDateTime">
+        </div>
+        <div class="form-group">
+          <label>Post Type</label>
+          <select id="schedPostType">
+            <option>Brand Announcement</option>
+            <option>Thought Leadership</option>
+            <option>Motivational</option>
+            <option>Product / Feature Launch</option>
+            <option>Hiring / Recruiting</option>
+            <option>Industry News</option>
+            <option>Culture &amp; Values</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Image Path (optional)</label>
+        <input type="text" id="schedImage" placeholder="li_cache/poster_0_...png">
+      </div>
+      <button class="btn btn-primary btn-lg" onclick="schedulePost()" id="schedBtn">📅 Add to Queue</button>
+    </div>
+    <div id="schedResult"></div>
+  </div>
+
+  <!-- ══════════ AI CAMPAIGN ══════════ -->
+  <div class="content hidden" id="page-campaign">
+    <div class="steps" id="campaignSteps">
+      <div class="step">
+        <div class="step-dot active" id="step1dot">1</div>
+        <div class="step-info" style="margin-left:8px"><div class="step-name active" id="step1name">Configure</div></div>
+      </div>
+      <div class="step-connector" id="conn1"></div>
+      <div class="step">
+        <div class="step-dot" id="step2dot">2</div>
+        <div class="step-info" style="margin-left:8px"><div class="step-name" id="step2name">Review Plan</div></div>
+      </div>
+      <div class="step-connector" id="conn2"></div>
+      <div class="step">
+        <div class="step-dot" id="step3dot">3</div>
+        <div class="step-info" style="margin-left:8px"><div class="step-name" id="step3name">Launch</div></div>
+      </div>
+    </div>
+
+    <!-- Step 1 -->
+    <div id="campStep1">
+      <di class="card">
+        <div class="card-header">
+          <div>
+            <div class="card-title">🎯 AI-Powered Campaign</div>
+            <div class="card-subtitle">AI automatically generates all topics and schedules posts — no manual topic entry needed</div>
+          </div>
+        </div>
+
+        <div class="alert alert-info">
+          💡 AI will automatically generate unique topics for each scheduled post based on your brand profile. No need to enter topics manually.
+        </div>
+
+        <div class="form-row-3">
+          <div class="form-group">
+            <label>Number of Days</label>
+            <select id="campDays">
+              <option value="5">5 Days</option>
+              <option value="7">7 Days</option>
+              <option value="10" selected>10 Days</option>
+              <option value="14">14 Days</option>
+              <option value="30">30 Days</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Posts Per Day</label>
+            <select id="campPostsPerDay">
+              <option value="1" selected>1 post/day</option>
+              <option value="2">2 posts/day</option>
+              <option value="3">3 posts/day</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Start Date</label>
+            <input type="date" id="campStart">
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>Industry (AI context)</label>
+            <input type="text" id="campIndustry" placeholder="e.g. AI, FinTech, Marketing (uses profile if blank)">
+          </div>
+          <div class="form-group">
+            <label>Product/Service (AI context)</label>
+            <input type="text" id="campProduct" placeholder="e.g. analytics platform (uses profile if blank)">
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>Approval Email (optional)</label>
+            <input type="email" id="campEmail" placeholder="you@company.com — for approval notifications">
+          </div>
+          <div class="form-group">
+            <label>Post Tone</label>
+            <select id="campTone"></select>
+          </div>
+        </div>
+
+    
+          <div class="form-group">
+    <label>POST TIME</label>
+    <input
+        type="time"
+        id="campaignTime"
+        value="09:00">
+</div>
+        
+        <button class="btn btn-primary btn-lg" onclick="goStep2Camp()">Next: Review Plan →</button>
+      </div>
+    </div>
+
+    <!-- Step 2 -->
+    <div id="campStep2" class="hidden">
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <div class="card-title">📋 Campaign Schedule Preview</div>
+            <div class="card-subtitle">Review your posting schedule before launching</div>
+          </div>
+        </div>
+        <div id="campaignPlanGrid" class="day-cards"></div>
+      </div>
+      <div style="display:flex;gap:10px;margin-bottom:18px">
+        <button class="btn btn-secondary" onclick="goStep1Camp()">← Back</button>
+        <button class="btn btn-primary btn-lg" onclick="goStep3Camp()">Looks Good →</button>
+      </div>
+    </div>
+
+    <!-- Step 3 -->
+    <div id="campStep3" class="hidden">
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <div class="card-title">🚀 Launch Campaign</div>
+            <div class="card-subtitle">AI will generate unique topics for each post automatically</div>
+          </div>
+        </div>
+        <div class="alert alert-warn">
+          Launching will schedule <strong id="launchJobCount">?</strong> jobs. AI will generate topics at post time using your brand profile.
+        </div>
+        <div style="display:flex;gap:10px;margin-top:14px">
+          <button class="btn btn-secondary" onclick="goStep2Camp()">← Back</button>
+          <button class="btn btn-primary btn-lg" onclick="launchCampaign()" id="launchBtn">🚀 Launch Campaign</button>
+        </div>
+        <div id="launchResult" style="margin-top:14px"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════ CALENDAR ══════════ -->
+  <div class="content hidden" id="page-calendar">
+    <div class="card">
+      <div class="cal-nav">
+        <button class="btn btn-secondary btn-sm" onclick="calPrev()">← Prev</button>
+        <div class="cal-month-label" id="calMonthLabel">June 2025</div>
+        <button class="btn btn-secondary btn-sm" onclick="calNext()">Next →</button>
+      </div>
+      <div style="display:flex;gap:14px;margin-bottom:12px;flex-wrap:wrap">
+        <div style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text3)">
+          <div class="cal-post-dot green"></div> Approved
+        </div>
+        <div style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text3)">
+          <div class="cal-post-dot yellow"></div> Pending
+        </div>
+        <div style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text3)">
+          <div class="cal-post-dot blue"></div> Posted
+        </div>
+        <div style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text3)">
+          <div class="cal-post-dot red"></div> Failed
+        </div>
+      </div>
+      <div class="cal-grid" id="calGrid"></div>
+    </div>
+  </div>
+
+  <!-- ══════════ APPROVAL CENTER ══════════ -->
+  <div class="content hidden" id="page-approvals">
+    <div class="stats-grid" style="grid-template-columns:repeat(3,1fr)">
+      <div class="stat-card">
+        <div class="stat-card-line yellow"></div>
+        <div class="stat-num" style="color:var(--yellow)" id="apPending">—</div>
+        <div class="stat-label">Pending</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-card-line green"></div>
+        <div class="stat-num" style="color:var(--green2)" id="apApproved">—</div>
+        <div class="stat-label">Approved</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-card-line red"></div>
+        <div class="stat-num" style="color:var(--red)" id="apRejected">—</div>
+        <div class="stat-label">Rejected</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">✅ Approval Center</div>
+        <div style="display:flex;gap:8px">
+          <select id="apFilter" onchange="loadApprovals()" style="width:130px">
+            <option value="">All</option>
+            <option value="pending">Pending</option>
+            <option value="approved">Approved</option>
+            <option value="rejected">Rejected</option>
+          </select>
+          <button class="btn btn-secondary btn-sm" onclick="loadApprovals()">↻ Refresh</button>
+        </div>
+      </div>
+      <div id="approvalsList">
+        <div class="empty-state">
+          <div class="empty-icon">✅</div>
+          <div class="empty-title">No approvals yet</div>
+          <div class="empty-text">Approvals are created when AI campaigns run</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════ JOB QUEUE ══════════ -->
+  <div class="content hidden" id="page-jobs">
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-card-line"></div>
+        <div class="stat-num" id="jTotal">—</div>
+        <div class="stat-label">Total</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-card-line yellow"></div>
+        <div class="stat-num" style="color:var(--yellow)" id="jPending">—</div>
+        <div class="stat-label">Pending</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-card-line green"></div>
+        <div class="stat-num" style="color:var(--green2)" id="jPosted">—</div>
+        <div class="stat-label">Posted</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-card-line red"></div>
+        <div class="stat-num" style="color:var(--red)" id="jFailed">—</div>
+        <div class="stat-label">Failed</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">📋 Job Queue</div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <select id="jobFilter" onchange="loadJobs()" style="width:130px">
+            <option value="">All Status</option>
+            <option value="pending">Pending</option>
+            <option value="approved">Approved</option>
+            <option value="posted">Posted</option>
+            <option value="failed">Failed</option>
+          </select>
+          <button class="btn btn-secondary btn-sm" onclick="loadJobs()">↻ Refresh</button>
+          <button class="btn btn-danger btn-sm" onclick="clearAllJobs()">🗑 Clear All</button>
+        </div>
+      </div>
+      <div style="overflow-x:auto">
+        <table class="job-table">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Scheduled</th>
+              <th>Status</th>
+              <th>Mode</th>
+              <th>Content Preview</th>
+              <th>Image</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody id="jobTableBody">
+            <tr><td colspan="7" style="text-align:center;color:var(--text3);padding:32px">Loading...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════ ANALYTICS ══════════ -->
+  <div class="content hidden" id="page-analytics">
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-card-line"></div>
+        <div class="stat-num" id="anTotal">—</div>
+        <div class="stat-label">Total Posts</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-card-line green"></div>
+        <div class="stat-num" style="color:var(--green2)" id="anPosted">—</div>
+        <div class="stat-label">Published</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-card-line purple"></div>
+        <div class="stat-num" style="color:var(--purple)" id="anApprovalRate">—%</div>
+        <div class="stat-label">Publish Rate</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-card-line"></div>
+        <div class="stat-num" id="anSuccessRate">—%</div>
+        <div class="stat-label">Success Rate</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title mb-3">📈 Posts Per Week</div>
+      <div id="weeklyChart" style="padding:8px 0"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">📊 Publishing Summary</div>
+        <button class="btn btn-secondary btn-sm" onclick="loadAnalytics()">↻ Refresh</button>
+      </div>
+      <div id="analyticsSummary">
+        <div class="skeleton" style="height:60px;border-radius:var(--r-sm);margin-bottom:8px"></div>
+        <div class="skeleton" style="height:60px;border-radius:var(--r-sm)"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════ SETTINGS ══════════ -->
+  <div class="content hidden" id="page-settings">
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">⚙️ API Configuration</div>
+        <div class="card-subtitle">Backend endpoint for this dashboard</div>
+      </div>
+      <div class="form-group">
+        <label>Backend API Base URL</label>
+        <input type="text" id="apiBaseInput" placeholder="http://localhost:8000">
+        <div style="font-size:10px;color:var(--text3);margin-top:4px">On Render: your service URL, e.g. https://my-app.onrender.com</div>
+      </div>
+      <button class="btn btn-primary" onclick="saveApiConfig()">💾 Save &amp; Reconnect</button>
+    </div>
+
+    <div class="card">
+      <div class="card-title mb-3">🔬 API Tester</div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Method</label>
+          <select id="testMethod">
+            <option>GET</option>
+            <option>POST</option>
+            <option>DELETE</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Path</label>
+          <input type="text" id="testPath" value="/health">
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Request Body (JSON for POST)</label>
+        <textarea id="testBody" rows="3" placeholder='{"key":"value"}'></textarea>
+      </div>
+      <button class="btn btn-secondary" onclick="testApi()">→ Send Request</button>
+      <div id="testResult" class="hidden" style="margin-top:12px">
+        <div style="font-size:10px;color:var(--text3);font-family:var(--font-mono);margin-bottom:4px">Response:</div>
+        <pre id="testResultBody" style="background:var(--bg3);border:1px solid var(--border);border-radius:var(--r-sm);padding:12px;font-size:11px;overflow-x:auto;max-height:300px;font-family:var(--font-mono);color:var(--text2)"></pre>
+      </div>
+    </div>
+  </div>
+
+</main>
+</div><!-- end .app -->
+
+<!-- ══════════════════════════════════════════════
+     REWRITE MODAL
+══════════════════════════════════════════════ -->
+<div class="modal-overlay hidden" id="rewriteModal">
+  <div class="modal">
+    <div class="modal-title">
+      <span>✏️ Rewrite Post</span>
+      <span class="modal-close" onclick="closeModal('rewriteModal')">×</span>
+    </div>
+    <div class="form-group">
+      <label>Select Style</label>
+      <div class="rewrite-grid" id="rewriteStyles"></div>
+    </div>
+    <div class="form-group">
+      <label>Current Text</label>
+      <textarea id="rewriteInput" rows="5"></textarea>
+    </div>
+    <button class="btn btn-primary w-full" onclick="doRewrite()" id="rewriteBtn">✏️ Rewrite</button>
+    <div id="rewriteResult" class="hidden" style="margin-top:14px">
+      <div class="card-title mb-2" style="font-size:13px">Rewritten:</div>
+      <div class="text-preview" id="rewriteResultText"></div>
+      <div style="display:flex;gap:8px;margin-top:10px">
+        <button class="btn btn-primary btn-sm" onclick="useRewriteResult()">Use This</button>
+        <button class="btn btn-secondary btn-sm" onclick="copyRewriteResult()">Copy</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════
+//  GLOBALS
+// ═══════════════════════════════════════════════════════
+let API_BASE = localStorage.getItem('li_api_base') || (window.location.origin === 'null' ? 'http://localhost:8000' : window.location.origin);
+let selectedGradient = 'Navy Sapphire';
+let generatedData = null;
+let selectedPosterPath = null;
+let selectedUserType = 'individual';
+let selectedRewriteStyle = 'professional';
+let selectedTopic = null;
+let calYear = new Date().getFullYear();
+let calMonth = new Date().getMonth();
+let allJobs = [];
+let campaignConfig = {};
+let selectedImgPath = null;
+let editorImgPath = null;
+
+// ═══════════════════════════════════════════════════════
+//  CONSTANTS (mirrors backend)
+// ═══════════════════════════════════════════════════════
+const POST_TYPES = [
+  'Thought Leadership','Text Post','Motivational','Story / Experience','Hot Take / Opinion',
+  'Brand Announcement','Hiring / Recruiting','Product / Feature Launch','Company Milestone',
+  'Event / Workshop','Industry News','Culture & Values',
+];
+const TONES = [
+  'Executive Authority','Warm & Authentic','Bold Marketing',
+  'Data-Driven Analyst','Storyteller','Technical Expert','Inspiring Coach',
+];
+const MOODS = ['Professional','Bold & Energetic','Innovative','Celebratory','Calm & Inspire','Social Impact','Fun & Relatable','Research & Data'];
+const GRADIENTS = {
+  'Navy Sapphire':    ['#0a192f','#0ea5e9'],
+  'Obsidian Emerald': ['#020617','#10b981'],
+  'Deep Violet':      ['#1a0533','#a855f7'],
+  'Midnight Amber':   ['#1c1408','#f59e0b'],
+  'Charcoal Crimson': ['#1a0000','#ef4444'],
+  'Dark Teal':        ['#042f2e','#14b8a6'],
+  'Slate Coral':      ['#1e1b2e','#f97316'],
+  'Graphite Sky':     ['#111827','#38bdf8'],
+};
+const REWRITE_STYLES = ['professional','viral','ceo','technical','motivational','storytelling'];
+
+// ═══════════════════════════════════════════════════════
+//  CORE UTILS
+// ═══════════════════════════════════════════════════════
+async function api(path, method='GET', body=null) {
+  const url = API_BASE + path;
+  const opts = { method, headers: { 'Content-Type': 'application/json' } };
+  if(body) opts.body = JSON.stringify(body);
+  const r = await fetch(url, opts);
+  const data = await r.json().catch(()=>({}));
+  if(!r.ok) throw { status: r.status, data };
+  return data;
+}
+
+function toast(msg, type='info', duration=4000) {
+  const c = document.getElementById('toast-container');
+  const el = document.createElement('div');
+  el.className = `toast ${type}`;
+  const icon = type==='success'?'✅':type==='error'?'❌':'ℹ️';
+  el.innerHTML = `${icon} <span>${msg}</span>`;
+  c.appendChild(el);
+  setTimeout(()=>{ el.style.opacity='0'; el.style.transition='opacity 0.3s'; setTimeout(()=>el.remove(),300); }, duration);
+}
+
+function setLoading(btnId, loading, text='Loading...') {
+  const btn = document.getElementById(btnId);
+  if(!btn) return;
+  if(loading) {
+    btn._origHTML = btn.innerHTML;
+    btn.innerHTML = `<span class="spinner"></span> ${text}`;
+    btn.disabled = true;
+  } else {
+    btn.innerHTML = btn._origHTML || btn.innerHTML;
+    btn.disabled = false;
+  }
+}
+
+function truncate(s,n) { return s && s.length>n ? s.slice(0,n)+'…' : (s||''); }
+function statusBadge(s) {
+  if(!s||s==='pending') return 'badge-yellow';
+  if(s==='posted') return 'badge-green';
+  if(s==='approved') return 'badge-blue';
+  if(s==='rejected') return 'badge-red';
+  if(s?.includes('failed')) return 'badge-red';
+  return 'badge-blue';
+}
+function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
+
+// ═══════════════════════════════════════════════════════
+//  NAVIGATION
+// ═══════════════════════════════════════════════════════
+const PAGE_TITLES = {
+  dashboard: 'Dashboard', auth: 'LinkedIn Connection', profile: 'Brand Profile',
+  generate: 'Generate Post', topics: 'AI Topic Generator', images: 'Image Browser',
+  postnow: 'Post Now', schedule: 'Schedule Post', campaign: 'AI Campaign',
+  calendar: 'Content Calendar', approvals: 'Approval Center', jobs: 'Job Queue',
+  analytics: 'Analytics', settings: 'Settings',
+};
+
+function showPage(id) {
+  document.querySelectorAll('.content').forEach(el => el.classList.add('hidden'));
+  document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+  const page = document.getElementById('page-'+id);
+  if(page) page.classList.remove('hidden');
+  const navItem = document.getElementById('nav-'+id);
+  if(navItem) navItem.classList.add('active');
+  document.getElementById('pageTitle').textContent = PAGE_TITLES[id] || id;
+
+  // Page init hooks
+  if(id==='jobs') loadJobs();
+  if(id==='approvals') loadApprovals();
+  if(id==='analytics') loadAnalytics();
+  if(id==='calendar') renderCalendar();
+  if(id==='profile') loadProfile();
+  if(id==='auth') checkAuthStatus();
+}
+async function loadTopicProfile(){
+
+    try{
+
+        const profile = await api('/profile');
+
+        document.getElementById('topicCompany').textContent =
+            profile.company || '-';
+
+        document.getElementById('topicDomainText').textContent =
+            profile.domain || '-';
+
+        document.getElementById('topicProductText').textContent =
+            profile.product || '-';
+
+    }
+    catch(err){
+        console.error(err);
+    }
+
+}
+// ═══════════════════════════════════════════════════════
+//  HEALTH + DASHBOARD
+// ═══════════════════════════════════════════════════════
+async function refreshAll() {
+  await refreshHealth();
+  await refreshDashboard();
+}
+
+async function refreshHealth() {
+  try {
+    const h = await api('/health');
+    updateStatusUI(h);
+    document.getElementById('healthBanner').innerHTML = '';
+  } catch(e) {
+    document.getElementById('healthBanner').innerHTML = `
+      <div class="alert alert-warn">⚠ Cannot reach backend at <strong>${API_BASE}</strong>. Check Settings → API Config.</div>`;
+    updateStatusUI({});
+  }
+}
+
+function updateStatusUI(h) {
+  const grid = document.getElementById('statusGrid');
+  const services = [
+    { label:'LinkedIn', ok: h.linkedin_token, icon:'🔗', sub: h.linkedin_token ? 'Connected' : 'Not connected' },
+    { label:'Gemini AI', ok: h.gemini, icon:'🤖', sub: h.gemini ? 'Ready' : 'API key missing' },
+    { label:'Supabase DB', ok: h.supabase, icon:'🗄', sub: h.supabase ? 'Connected' : 'Using local fallback' },
+    { label:'Scheduler', ok: h.scheduler==='running', icon:'⏱', sub: 'Background daemon' },
+    { label:'Pixabay', ok: h.pixabay, icon:'🖼', sub: h.pixabay ? 'API key set' : 'No API key' },
+    { label:'Pexels', ok: h.pexels, icon:'📷', sub: h.pexels ? 'API key set' : 'No API key' },
+  ];
+  grid.innerHTML = services.map(s=>`
+    <div class="stat-card" style="padding:14px">
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="font-size:18px">${s.icon}</span>
+        <span class="badge ${s.ok?'badge-green':'badge-red'}">${s.ok?'ON':'OFF'}</span>
+      </div>
+      <div style="font-size:12px;font-weight:600;margin-top:8px">${s.label}</div>
+      <div style="font-size:10px;color:var(--text3);margin-top:2px;font-family:var(--font-mono)">${s.sub}</div>
+    </div>`).join('');
+
+  // sidebar dots
+  const setDot = (id, ok) => {
+    const el = document.getElementById(id);
+    if(!el) return;
+    el.classList.toggle('ok', ok);
+    el.classList.toggle('warn', !ok);
+  };
+  setDot('dotLinkedin', h.linkedin_token);
+  setDot('dotGemini', h.gemini);
+  setDot('dotSupabase', h.supabase);
+  setDot('dotProfile', false); // will be set by loadProfile
+
+  // auth badge
+  if(!h.linkedin_token) {
+    document.getElementById('authBadge').classList.remove('hidden');
+  } else {
+    document.getElementById('authBadge').classList.add('hidden');
+  }
+}
+
+async function refreshDashboard() {
+  try {
+    const { stats, jobs } = await api('/jobs');
+    document.getElementById('statTotal').textContent   = stats.total;
+    document.getElementById('statPending').textContent = stats.pending;
+    document.getElementById('statPosted').textContent  = stats.posted;
+    document.getElementById('statFailed').textContent  = stats.failed;
+    document.getElementById('jobsBadge').textContent   = stats.pending;
+    allJobs = jobs;
+
+    const recent = jobs.slice(0,6);
+    const container = document.getElementById('recentJobs');
+    if(!recent.length) {
+      container.innerHTML = `<div class="empty-state"><div class="empty-icon">📭</div><div class="empty-title">No jobs yet</div></div>`;
+      return;
+    }
+    container.innerHTML = `<div class="timeline">` + recent.map(j=>`
+      <div class="timeline-item ${j.status==='posted'?'done':j.status?.includes('failed')?'failed':''}">
+        <div class="timeline-meta">
+          <span>${j.datetime||'—'}</span>
+          <span class="badge ${statusBadge(j.status)}">${j.status||'pending'}</span>
+          ${j.mode==='ai_auto'?'<span class="badge badge-purple">🤖 AI</span>':''}
+          ${j.image_path?'<span class="badge badge-blue">🖼</span>':''}
+        </div>
+        <div style="font-size:12px;color:var(--text2);margin-top:2px">${truncate(j.text||j.topic||'AI auto-generated post',100)}</div>
+        <div style="font-size:10px;color:var(--text3);margin-top:3px;font-family:var(--font-mono)">${j.company||'—'} · ID: ${(j.id||'').slice(0,8)}</div>
+      </div>`).join('') + `</div>`;
+  } catch(e) {}
+}
+
+// ═══════════════════════════════════════════════════════
+//  AUTH — ONE-CLICK LINKEDIN
+// ═══════════════════════════════════════════════════════
+function connectLinkedIn() {
+  const authUrl = API_BASE + '/auth/login';
+
+  // Try popup first
+  const popup = window.open(authUrl, 'linkedin_auth', 'width=600,height=700,scrollbars=yes,resizable=yes');
+  if(popup) {
+    setLoading('connectBtn', true, 'Waiting for LinkedIn...');
+    // Poll for completion
+    const poll = setInterval(async () => {
+      try {
+        if(popup.closed) {
+          clearInterval(poll);
+          await checkAuthStatus();
+          setLoading('connectBtn', false);
+        }
+      } catch(e) {
+        // cross-origin; popup might be on callback page
+      }
+    }, 800);
+  } else {
+    // Fallback: direct redirect
+    window.location.href = authUrl;
+  }
+}
+
+// Listen for postMessage from callback page
+window.addEventListener('message', async (event) => {
+  if(event.data?.type === 'linkedin_connected') {
+    toast(`✅ LinkedIn connected as ${event.data.name}!`, 'success', 5000);
+    await checkAuthStatus();
+    await refreshAll();
+    showPage('dashboard');
+  }
+});
+
+// Check if redirected back with ?linkedin_connected=1
+(function checkRedirectAuth() {
+  const params = new URLSearchParams(window.location.search);
+  if(params.get('linkedin_connected')) {
+    const name = params.get('name') || 'User';
+    toast(`✅ LinkedIn connected as ${decodeURIComponent(name)}!`, 'success', 5000);
+    window.history.replaceState({}, '', window.location.pathname);
+  }
+})();
+
+async function checkAuthStatus() {
+  try {
+    const r = await api('/auth/status');
+    const notConn = document.getElementById('authNotConnected');
+    const connEl  = document.getElementById('authConnected');
+    if(r.connected && r.name) {
+      notConn?.classList.add('hidden');
+      connEl?.classList.remove('hidden');
+      document.getElementById('liUserName').textContent = r.name;
+      document.getElementById('dotLinkedin').classList.add('ok');
+      document.getElementById('authBadge').classList.add('hidden');
+    } else {
+      notConn?.classList.remove('hidden');
+      connEl?.classList.add('hidden');
+      document.getElementById('dotLinkedin').classList.remove('ok');
+    }
+  } catch(e) {}
+}
+
+async function disconnectLinkedIn() {
+  if(!confirm('Disconnect LinkedIn?')) return;
+  try {
+    await api('/auth/disconnect', 'DELETE');
+    toast('Disconnected from LinkedIn', 'info');
+    await checkAuthStatus();
+  } catch(e) { toast('Error disconnecting', 'error'); }
+}
+
+// ═══════════════════════════════════════════════════════
+//  PROFILE
+// ═══════════════════════════════════════════════════════
+function selectUserType(t) {
+  selectedUserType = t;
+  document.querySelectorAll('[id^="ut-"]').forEach(el => el.classList.remove('selected'));
+  document.getElementById('ut-'+t)?.classList.add('selected');
+}
+
+async function saveProfile() {
+  const body = {
+    name: document.getElementById('pName').value.trim(),
+    company: document.getElementById('pCompany').value.trim(),
+    domain: document.getElementById('pDomain').value.trim(),
+    product: document.getElementById('pProduct').value.trim(),
+    user_type: selectedUserType,
+    email: document.getElementById('pEmail').value.trim(),
+  };
+  if(!body.name || !body.company) { toast('Name and Company are required', 'error'); return; }
+  try {
+    await api('/profile', 'POST', body);
+    toast('Profile saved!', 'success');
+    showProfilePreview(body);
+    document.getElementById('dotProfile').classList.add('ok');
+  } catch(e) { toast('Failed: '+(e.data?.detail||'error'), 'error'); }
+}
+
+async function loadProfile() {
+  try {
+    const p = await api('/profile');
+    if(p.name)    document.getElementById('pName').value    = p.name;
+    if(p.company) document.getElementById('pCompany').value = p.company;
+    if(p.domain)  document.getElementById('pDomain').value  = p.domain;
+    if(p.product) document.getElementById('pProduct').value = p.product;
+    if(p.email)   document.getElementById('pEmail').value   = p.email;
+    if(p.user_type) selectUserType(p.user_type);
+    if(p.company) {
+      showProfilePreview(p);
+      document.getElementById('dotProfile').classList.add('ok');
+    }
+    // Pre-fill campaign fields
+    if(p.domain) {
+      document.getElementById('campIndustry').placeholder = `e.g. AI, FinTech (using: ${p.domain})`;
+      document.getElementById('campProduct').placeholder  = `e.g. platform (using: ${p.product||'—'})`;
+    }
+  } catch(e) {}
+}
+
+function showProfilePreview(p) {
+  document.getElementById('profilePreviewCard').style.display = '';
+  document.getElementById('profilePreview').innerHTML = `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      ${[['Name',p.name],['Company',p.company],['Domain',p.domain],['Product',p.product],['Type',p.user_type],['Email',p.email]].map(([k,v])=>`
+      <div>
+        <div style="font-size:9px;color:var(--text3);font-family:var(--font-mono);text-transform:uppercase;letter-spacing:0.1em">${k}</div>
+        <div style="font-size:13px;font-weight:500;margin-top:2px">${v||'—'}</div>
+      </div>`).join('')}
+    </div>`;
+}
+
+// ═══════════════════════════════════════════════════════
+//  AI TOPICS
+// ═══════════════════════════════════════════════════════
+function renderTopics(topics) {
+
+    const container =
+        document.getElementById("topicsContainer");
+
+    if (!container) {
+        console.error("topicsContainer not found");
+        return;
+    }
+
+    container.innerHTML = "";
+
+    topics.forEach((topic, index) => {
+
+        container.innerHTML += `
+            <div class="topic-card">
+                <div class="topic-number">
+                    ${index + 1}
+                </div>
+
+                <div class="topic-text">
+                    ${topic}
+                </div>
+            </div>
+        `;
+
+    });
+
+}
+async function generateTopics() {
+
+    try {
+
+        const btn = document.getElementById('genTopicsBtn');
+
+        btn.disabled = true;
+        btn.textContent = 'Generating Topics...';
+
+        const response = await fetch(
+            `${API_BASE}/generate-topics`,
+            {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({})
+            }
+        );
+
+        const data = await response.json();
+
+        console.log(data);
+
+        renderTopics(data.topics || []);
+
+    } catch (err) {
+
+        console.error(err);
+        alert('Failed to generate topics');
+
+    } finally {
+
+        const btn = document.getElementById('genTopicsBtn');
+
+        btn.disabled = false;
+        btn.textContent = '💡 Generate AI Topics';
+    }
+}
+function displayTopics(topics) {
+  document.getElementById('topicsResultCard').classList.remove('hidden');
+  document.getElementById('topicsCountLabel').textContent = `${topics.length} topics generated. Click to select.`;
+  selectedTopic = null;
+  const grid = document.getElementById('topicsGrid');
+  grid.innerHTML = topics.map((t,i)=>`
+    <div class="topic-card" onclick="selectTopic(this,'${t.replace(/'/g,"\\'")}')" title="${t}">
+      <div class="topic-card-num">TOPIC ${String(i+1).padStart(2,'0')}</div>
+      ${t}
+    </div>`).join('');
+}
+
+function selectTopic(el, topic) {
+  document.querySelectorAll('.topic-card').forEach(c=>c.classList.remove('selected'));
+  el.classList.add('selected');
+  selectedTopic = topic;
+}
+
+function useSelectedTopic() {
+  if(!selectedTopic) { toast('Select a topic first', 'error'); return; }
+  document.getElementById('genTopic').value = selectedTopic;
+  showPage('generate');
+  toast('Topic loaded into generator', 'info');
+}
+
+// ═══════════════════════════════════════════════════════
+//  IMAGE BROWSER
+// ═══════════════════════════════════════════════════════
+async function searchImages() {
+  const q = document.getElementById('imgSearchQuery').value.trim();
+  if(!q) { toast('Enter a search query', 'error'); return; }
+  const count = parseInt(document.getElementById('imgSearchCount').value);
+  setLoading('imgSearchBtn', true, 'Searching...');
+  try {
+    const r = await api('/images/search', 'POST', { query:q, count });
+    if(!r.images?.length) { toast('No images found. Check Pixabay/Pexels API keys.','error'); return; }
+    renderImageBrowser(r.images);
+    toast(`Found ${r.count} images`, 'success');
+  } catch(e) {
+    toast('Image search failed: '+(e.data?.detail||'Check API keys'), 'error');
+  } finally {
+    setLoading('imgSearchBtn', false);
+  }
+}
+
+function renderImageBrowser(images) {
+  const area = document.getElementById('imgResultsArea');
+  area.innerHTML = `
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">Search Results</div>
+        <div style="font-size:11px;color:var(--text3)">Click to select, then edit or use</div>
+      </div>
+      <div class="image-browser-grid" id="imgBrowserGrid">
+        ${images.map((img,i)=>`
+        <div class="img-thumb" id="imgCard-${i}" onclick="selectImage(${i},'${img.url}','${img.thumb||img.url}')">
+          <img src="${img.thumb||img.url}" alt="${img.query||''}" loading="lazy">
+          <div class="img-thumb-info">${img.source||'Stock'}</div>
+          <div class="img-thumb-check" id="imgCheck-${i}">✓</div>
+        </div>`).join('')}
+      </div>
+      <div style="margin-top:12px;display:flex;gap:8px" id="imgActionBar" class="hidden">
+        <button class="btn btn-secondary btn-sm" onclick="openImageEditor()">🎨 Edit Image</button>
+        <button class="btn btn-primary btn-sm" onclick="useSelectedImageForPost()">✨ Use in Post</button>
+      </div>
+    </div>`;
+}
+
+function selectImage(idx, url, thumb) {
+  document.querySelectorAll('.img-thumb').forEach((el,i)=>{
+    el.classList.toggle('selected', i===idx);
+    document.getElementById(`imgCheck-${i}`)?.style.setProperty('display', i===idx?'flex':'none');
+  });
+  selectedImgPath = url;
+  editorImgPath = url;
+  document.getElementById('editorPreview').src = thumb || url;
+  document.getElementById('imgActionBar').classList.remove('hidden');
+}
+
+function openImageEditor() {
+  if(!selectedImgPath) { toast('Select an image first', 'error'); return; }
+  document.getElementById('imgEditorPanel').classList.remove('hidden');
+  document.getElementById('imgEditorPanel').scrollIntoView({behavior:'smooth'});
+}
+async function handlePublishInstant() {
+  const text = document.getElementById('editorText').value.trim();
+  const urn = document.getElementById('profileUrn').value.trim();
+  const imgInput = document.getElementById('editorImageFile'); // તમારું ફાઇલ ઇનપુટ
+
+  if (!text || !urn) {
+    showToast('Please enter post text and make sure URN is available.', 'error');
+    return;
+  }
+
+  showToast('Publishing instantly to LinkedIn...', 'info');
+
+  // JSON ને બદલે FormData નો ઉપયોગ કરો જેથી ફાઇલ અપલોડ થાય
+  const formData = new FormData();
+  formData.append('text', text);
+  formData.append('urn', urn);
+  
+  if (imgInput && imgInput.files.length > 0) {
+    formData.append('image', imgInput.files[0]);
+  }
+
+  try {
+    const res = await fetch(`${API_BASE}/api/posts/instant`, {
+      method: 'POST',
+      body: formData // No headers needed, browser auto-sets multipart/form-data
+    });
+
+    const data = await res.json();
+    if (res.ok) {
+      showToast('Successfully published to LinkedIn!', 'success');
+      document.getElementById('editorText').value = '';
+      if(imgInput) imgInput.value = ''; // Reset file input
+    } else {
+      showToast(`Publish failed: ${data.detail || JSON.stringify(data)}`, 'error');
+    }
+  } catch (err) {
+    showToast(`Error: ${err.message}`, 'error');
+  }
+}
+async function applyImageEdits() {
+  if(!editorImgPath) { toast('No image selected', 'error'); return; }
+  const ops = {};
+  const bright = parseFloat(document.getElementById('editBrightness').value);
+  const contrast = parseFloat(document.getElementById('editContrast').value);
+  const blur = parseFloat(document.getElementById('editBlur').value);
+  const wm = document.getElementById('editWatermark').value.trim();
+  const textOverlay = document.getElementById('editTextOverlay').value.trim();
+  if(bright !== 1.0) ops.brightness = bright;
+  if(contrast !== 1.0) ops.contrast = contrast;
+  if(blur > 0) ops.blur = blur;
+  if(wm) ops.watermark = wm;
+  if(textOverlay) ops.text_overlay = { text: textOverlay, x: 50, y: 50, size: 48 };
+
+  if(!Object.keys(ops).length) { toast('Adjust at least one setting', 'info'); return; }
+  setLoading('applyEditBtn', true, 'Applying...');
+  try {
+    const r = await api('/images/edit', 'POST', { image_path: editorImgPath, operations: ops });
+    editorImgPath = r.edited_path;
+    toast('Edits applied!', 'success');
+  } catch(e) {
+    toast('Edit failed: '+(e.data?.detail||'Image must be on server path'), 'error');
+  } finally {
+    setLoading('applyEditBtn', false);
+  }
+}
+
+function useSelectedImageForPost() {
+  if(!editorImgPath) { toast('Select an image first', 'error'); return; }
+  document.getElementById('postNowImage').value = editorImgPath;
+  document.getElementById('schedImage').value = editorImgPath;
+  showPage('postnow');
+  toast('Image loaded into Post Now', 'info');
+}
+
+// ═══════════════════════════════════════════════════════
+//  GENERATE POST
+// ═══════════════════════════════════════════════════════
+function buildGradientGrid() {
+  const grid = document.getElementById('gradientGrid');
+  grid.innerHTML = Object.entries(GRADIENTS).map(([name,[dark,accent]])=>`
+    <div>
+      <div class="gradient-swatch${name===selectedGradient?' selected':''}"
+        style="background:linear-gradient(135deg,${dark},${accent})"
+        onclick="selectGradient('${name}',this)"
+        title="${name}"></div>
+      <div class="gradient-swatch-label">${name.split(' ')[0]}</div>
+    </div>`).join('');
+}
+
+function selectGradient(name, el) {
+  selectedGradient = name;
+  document.querySelectorAll('.gradient-swatch').forEach(e=>e.classList.remove('selected'));
+  el.classList.add('selected');
+}
+
+async function generatePost(textOnly=false) {
+  const topic = document.getElementById('genTopic').value.trim();
+  if(!topic) { toast('Please enter a topic', 'error'); return; }
+
+  setLoading('genBtn', true, 'Generating...');
+  if(!textOnly) setLoading('genTextBtn', true, '...');
+
+  const body = {
+    topic,
+    post_type: document.getElementById('genPostType').value,
+    tone: document.getElementById('genTone').value,
+    mood: document.getElementById('genMood').value,
+    gradient: selectedGradient,
+    image_count: textOnly ? 0 : parseInt(document.getElementById('genImageCount').value),
+  };
+
+  try {
+    const data = await api('/generate', 'POST', body);
+    generatedData = data;
+    selectedPosterPath = null;
+    displayGeneratedResult(data);
+    toast('Content generated!', 'success');
+  } catch(e) {
+    toast('Generation failed: '+(e.data?.detail||'Check Gemini API key'), 'error');
+  } finally {
+    setLoading('genBtn', false);
+    setLoading('genTextBtn', false);
+  }
+}
+
+function displayGeneratedResult(data) {
+  const card = document.getElementById('genResultCard');
+  card.classList.remove('hidden');
+  document.getElementById('genResultText').textContent = data.text || '';
+
+  const grid = document.getElementById('genPosterGrid');
+  grid.innerHTML = '';
+  if(data.posters?.length) {
+    data.posters.forEach((path, i) => {
+      const src = API_BASE+'/'+path.replace(/^\/+/,'');
+      const safePath = path.replaceAll("\\", "/");
+      const div = document.createElement('div');
+      div.className = 'poster-card';
+      div.innerHTML = `
+        <img src="${src}" onerror="this.parentElement.style.background='var(--surface2)';this.style.display='none'"
+             alt="Poster ${i+1}" loading="lazy">
+        <div class="poster-info">
+          <div class="poster-source">${data.image_sources?.[i]||'Stock Photo'}</div>
+        </div>
+        <div class="poster-actions">
+          <button class="btn btn-secondary btn-sm" onclick="selectPoster('${path}',this.closest('.poster-card'))">Select</button>
+          <button class="btn btn-primary btn-sm" onclick="useThisPoster('${safePath}')"">Post Now</button>
+        </div>`;
+      grid.appendChild(div);
+    });
+  } else {
+    grid.innerHTML = `<div style="color:var(--text3);font-size:12px;padding:12px">No images generated (text-only or no image API keys configured)</div>`;
+  }
+  card.scrollIntoView({behavior:'smooth',block:'start'});
+}
+
+function selectPoster(path, card) {
+  selectedPosterPath = path;
+  document.querySelectorAll('.poster-card').forEach(c=>c.classList.remove('selected'));
+  card.classList.add('selected');
+  toast('Image selected', 'success');
+}
+
+function useThisPoster(path) {
+
+  console.log("POSTER PATH =", path);
+
+  selectedPosterPath = path;
+  document.getElementById('postNowImage').value = path;
+
+  if(generatedData?.text)
+      document.getElementById('postNowText').value = generatedData.text;
+
+  showPage('postnow');
+    toast('Content loaded into Post Now', 'info');
+}
+
+function copyText() {
+  const t = document.getElementById('genResultText').textContent;
+  navigator.clipboard.writeText(t).then(()=>toast('Copied to clipboard!','success')).catch(()=>toast('Copy failed','error'));
+}
+
+function sendToPostNow() {
+  if(generatedData?.text) document.getElementById('postNowText').value = generatedData.text;
+  if(selectedPosterPath) document.getElementById('postNowImage').value = selectedPosterPath;
+  showPage('postnow');
+}
+
+function sendToSchedule() {
+  if(generatedData?.text) document.getElementById('schedText').value = generatedData.text;
+  if(selectedPosterPath) document.getElementById('schedImage').value = selectedPosterPath;
+  showPage('schedule');
+}
+
+// ═══════════════════════════════════════════════════════
+//  REWRITE MODAL
+// ═══════════════════════════════════════════════════════
+function openRewriteModal() {
+  const styles = document.getElementById('rewriteStyles');
+  styles.innerHTML = REWRITE_STYLES.map(s=>`
+    <div class="rewrite-btn${s===selectedRewriteStyle?' active':''}" onclick="selectRewriteStyle('${s}',this)">
+      ${s.charAt(0).toUpperCase()+s.slice(1)}
+    </div>`).join('');
+  document.getElementById('rewriteInput').value = document.getElementById('genResultText').textContent;
+  document.getElementById('rewriteResult').classList.add('hidden');
+  document.getElementById('rewriteModal').classList.remove('hidden');
+}
+
+function selectRewriteStyle(style, el) {
+  selectedRewriteStyle = style;
+  document.querySelectorAll('.rewrite-btn').forEach(e=>e.classList.remove('active'));
+  el.classList.add('active');
+}
+
+async function doRewrite() {
+  const text = document.getElementById('rewriteInput').value.trim();
+  if(!text) { toast('No text to rewrite', 'error'); return; }
+  setLoading('rewriteBtn', true, 'Rewriting...');
+  try {
+    const r = await api('/rewrite', 'POST', { text, style: selectedRewriteStyle });
+    document.getElementById('rewriteResultText').textContent = r.rewritten;
+    document.getElementById('rewriteResult').classList.remove('hidden');
+    toast('Rewritten in '+selectedRewriteStyle+' style!', 'success');
+  } catch(e) {
+    toast('Rewrite failed: '+(e.data?.detail||'error'), 'error');
+  } finally {
+    setLoading('rewriteBtn', false);
+  }
+}
+
+function useRewriteResult() {
+  const text = document.getElementById('rewriteResultText').textContent;
+  document.getElementById('genResultText').textContent = text;
+  if(generatedData) generatedData.text = text;
+  closeModal('rewriteModal');
+  toast('Rewritten text applied!', 'success');
+}
+
+function copyRewriteResult() {
+  const t = document.getElementById('rewriteResultText').textContent;
+  navigator.clipboard.writeText(t).then(()=>toast('Copied!','success')).catch(()=>toast('Copy failed','error'));
+}
+
+// ═══════════════════════════════════════════════════════
+//  POST NOW
+// ═══════════════════════════════════════════════════════
+async function postNow() {
+  const text = document.getElementById('postNowText').value.trim();
+  if(!text) { toast('Post text is required', 'error'); return; }
+  setLoading('postNowBtn', true, 'Publishing...');
+  const body = {
+    text,
+    image_path: document.getElementById('postNowImage').value.trim() || null,
+  };
+  try {
+    await api('/post/now', 'POST', body);
+    toast('Posted to LinkedIn!', 'success', 6000);
+    document.getElementById('postNowResult').innerHTML = `
+      <div class="alert alert-success">✅ Published to LinkedIn successfully!</div>`;
+  } catch(e) {
+    const msg = e.data?.detail || JSON.stringify(e.data);
+    toast('Post failed: '+msg.slice(0,80), 'error');
+    document.getElementById('postNowResult').innerHTML = `<div class="alert alert-error">❌ ${msg}</div>`;
+  } finally {
+    setLoading('postNowBtn', false);
+  }
+}
+
+// ═══════════════════════════════════════════════════════
+//  SCHEDULE SINGLE
+// ═══════════════════════════════════════════════════════
+async function schedulePost() {
+  const text = document.getElementById('schedText').value.trim();
+  const dt   = document.getElementById('schedDateTime').value;
+  if(!text || !dt) { toast('Text and date are required', 'error'); return; }
+  const fmtDt = dt.replace('T',' ').slice(0,16);
+  setLoading('schedBtn', true, 'Scheduling...');
+  const body = {
+    text, scheduled_datetime: fmtDt,
+    post_type: document.getElementById('schedPostType').value,
+    image_path: document.getElementById('schedImage').value.trim() || null,
+  };
+  try {
+    const r = await api('/schedule', 'POST', body);
+    toast('Scheduled for '+fmtDt, 'success');
+    document.getElementById('schedResult').innerHTML = `
+      <div class="alert alert-success">📅 Scheduled successfully! Job ID: <code style="font-family:var(--font-mono);font-size:11px">${r.job_id}</code></div>`;
+    refreshDashboard();
+  } catch(e) {
+    toast('Schedule failed: '+(e.data?.detail||'Authenticate first'), 'error');
+  } finally {
+    setLoading('schedBtn', false);
+  }
+}
+
+// ═══════════════════════════════════════════════════════
+//  AI CAMPAIGN
+// ═══════════════════════════════════════════════════════
+function setStep(n) {
+  for(let i=1;i<=3;i++) {
+    const dot = document.getElementById(`step${i}dot`);
+    const name = document.getElementById(`step${i}name`);
+    if(i < n)  { dot.classList.add('done'); dot.classList.remove('active'); dot.textContent='✓'; }
+    else if(i===n) { dot.classList.add('active'); dot.classList.remove('done'); dot.textContent=String(i); }
+    else { dot.classList.remove('active','done'); dot.textContent=String(i); }
+    name.classList.toggle('active', i===n);
+    if(i<3) document.getElementById(`conn${i}`)?.classList.toggle('done', i<n);
+  }
+  for(let i=1;i<=3;i++) {
+    document.getElementById(`campStep${i}`).classList.toggle('hidden', i!==n);
+  }
+}
+
+function goStep1Camp() { setStep(1); }
+
+function goStep2Camp() {
+
+  const days = parseInt(
+    document.getElementById('campDays').value
+  );
+
+  const ppdEl =
+    document.getElementById('campPostsPerDay');
+
+  const ppd =
+    ppdEl ? parseInt(ppdEl.value) : 1;
+
+  const start =
+    document.getElementById('campStart').value;
+
+  if(!start){
+    toast('Select a start date','error');
+    return;
+  }
+
+  const selectedTime =
+    document.getElementById('campaignTime').value;
+
+  if(!selectedTime){
+    toast('Select a post time','error');
+    return;
+  }
+
+  const startDate =
+    new Date(start + 'T' + selectedTime);
+
+  campaignConfig = {
+    days,
+    ppd,
+    start: startDate,
+
+    industry:
+      document.getElementById('campIndustry')
+      .value.trim(),
+
+    product:
+      document.getElementById('campProduct')
+      .value.trim(),
+
+    email:
+      document.getElementById('campEmail')
+      .value.trim(),
+
+    tone:
+      document.getElementById('campTone')
+      .value,
+
+    timeSlots: [selectedTime]
+  };
+
+  document.getElementById(
+    'launchJobCount'
+  ).textContent = days * ppd;
+
+  const grid =
+    document.getElementById(
+      'campaignPlanGrid'
+    );
+
+  grid.innerHTML = '';
+
+  for(let i = 0; i < days; i++){
+
+    const d = new Date(startDate);
+
+    d.setDate(
+      d.getDate() + i
+    );
+
+    const div =
+      document.createElement('div');
+
+    div.className = 'day-card';
+
+    div.innerHTML = `
+      <div class="day-card-num">
+        Day ${i+1}
+      </div>
+
+      <div class="day-card-date">
+        ${d.toLocaleDateString(
+          'en-GB',
+          {
+            weekday:'short',
+            day:'numeric',
+            month:'short'
+          }
+        )}
+      </div>
+
+      <div class="day-card-time">
+        ${selectedTime}
+      </div>
+
+      <div style="font-size:9px;color:var(--text3);margin-top:4px;font-family:var(--font-mono)">
+        🤖 AI topic
+      </div>
+    `;
+
+    grid.appendChild(div);
+  }
+
+  setStep(2);
+}
+function goStep3Camp() { setStep(3); }
+
+async function launchCampaign() {
+  setLoading('launchBtn', true, 'Launching...');
+
+  const cfg = campaignConfig;
+
+  const startFmt = cfg.start.toISOString().slice(0,10);
+
+  // NEW
+  const selectedTime =
+    document.getElementById('campaignTime').value || "09:00";
+
+  const body = {
+    days: cfg.days,
+    posts_per_day: cfg.ppd,
+    start_date: startFmt,
+
+    // REPLACE OLD LINE
+    time_slots: [selectedTime],
+
+    industry: cfg.industry || null,
+    product: cfg.product || null,
+    tone: cfg.tone || 'Executive Authority',
+    approval_email: cfg.email || null,
+  };
+
+  try {
+    const r = await api('/campaign/auto', 'POST', body);
+
+    document.getElementById('launchResult').innerHTML = `
+      <div class="alert alert-success">
+        🚀 Campaign launched!
+        <strong>${r.total_posts} posts</strong>
+        scheduled over
+        <strong>${r.days} days</strong>.
+      </div>`;
+
+    toast(`Campaign launched! ${r.total_posts} jobs created.`, 'success', 6000);
+
+    document.querySelectorAll('.day-card')
+      .forEach(c => c.classList.add('approved'));
+
+    refreshDashboard();
+
+  } catch(e) {
+
+  console.log("FULL ERROR:", e);
+
+  const msg =
+    e?.data?.detail ||
+    e?.message ||
+    JSON.stringify(e) ||
+    "Unknown error";
+
+  document.getElementById('launchResult').innerHTML =
+    `<div class="alert alert-error">❌ ${msg}</div>`;
+
+  toast('Campaign failed: ' + msg, 'error');
+
+} finally {
+    setLoading('launchBtn', false);
+  }
+}
+// ═══════════════════════════════════════════════════════
+//  CALENDAR
+// ═══════════════════════════════════════════════════════
+function renderCalendar() {
+  const monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  document.getElementById('calMonthLabel').textContent = `${monthNames[calMonth]} ${calYear}`;
+
+  const today = new Date();
+  const firstDay = new Date(calYear, calMonth, 1).getDay();
+  const daysInMonth = new Date(calYear, calMonth+1, 0).getDate();
+  const daysInPrev  = new Date(calYear, calMonth, 0).getDate();
+
+  // Build day→posts map
+  const postsByDate = {};
+  allJobs.forEach(j => {
+    const dt = j.datetime?.slice(0,10);
+    if(dt) {
+      if(!postsByDate[dt]) postsByDate[dt] = [];
+      postsByDate[dt].push(j);
+    }
+  });
+
+  const grid = document.getElementById('calGrid');
+  grid.innerHTML = '';
+
+  const dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  dayNames.forEach(d => {
+    const el = document.createElement('div');
+    el.className = 'cal-day-name';
+    el.textContent = d;
+    grid.appendChild(el);
+  });
+
+  // Previous month days
+  for(let i = firstDay-1; i>=0; i--) {
+    const d = daysInPrev - i;
+    const cell = document.createElement('div');
+    cell.className = 'cal-cell other-month';
+    cell.innerHTML = `<div class="cal-date">${d}</div>`;
+    grid.appendChild(cell);
+  }
+
+  for(let d=1; d<=daysInMonth; d++) {
+    const dateStr = `${calYear}-${String(calMonth+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const posts   = postsByDate[dateStr] || [];
+    const isToday = today.getFullYear()===calYear && today.getMonth()===calMonth && today.getDate()===d;
+
+    const cell = document.createElement('div');
+    cell.className = `cal-cell${isToday?' today':''}${posts.length?' has-posts':''}`;
+    const dots = posts.map(p => {
+      const cls = p.status==='posted'?'blue':p.status==='approved'?'green':p.status?.includes('failed')?'red':'yellow';
+      return `<div class="cal-post-dot ${cls}"></div>`;
+    }).join('');
+    cell.innerHTML = `<div class="cal-date">${d}</div><div>${dots}</div>`;
+
+    if(posts.length) {
+      cell.onclick = () => showCalDay(dateStr, posts);
+    }
+    grid.appendChild(cell);
+  }
+
+  // Fill remaining
+  const total = firstDay + daysInMonth;
+  const remaining = (7 - (total % 7)) % 7;
+  for(let d=1; d<=remaining; d++) {
+    const cell = document.createElement('div');
+    cell.className = 'cal-cell other-month';
+    cell.innerHTML = `<div class="cal-date">${d}</div>`;
+    grid.appendChild(cell);
+  }
+}
+
+function showCalDay(dateStr, posts) {
+  document.getElementById('calDayTitle').textContent = `Posts for ${dateStr}`;
+  document.getElementById('calDayContent').innerHTML = posts.map(p=>`
+    <div style="border:1px solid var(--border);border-radius:var(--r-sm);padding:12px;margin-bottom:10px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+        <span class="badge ${statusBadge(p.status)}">${p.status||'pending'}</span>
+        <span style="font-family:var(--font-mono);font-size:10px;color:var(--text3)">${p.datetime||'—'}</span>
+      </div>
+      <div style="font-size:12px;color:var(--text2)">${truncate(p.text||p.topic||'AI auto post',160)}</div>
+      ${p.image_path?'<div style="font-size:10px;color:var(--accent);margin-top:4px;font-family:var(--font-mono)">🖼 Has image</div>':''}
+    </div>`).join('');
+  document.getElementById('calDayModal').classList.remove('hidden');
+}
+
+function calPrev() { calMonth--; if(calMonth<0){calMonth=11;calYear--;} renderCalendar(); }
+function calNext() { calMonth++; if(calMonth>11){calMonth=0;calYear++;} renderCalendar(); }
+
+// ═══════════════════════════════════════════════════════
+//  APPROVALS
+// ═══════════════════════════════════════════════════════
+async function loadApprovals() {
+  const filter = document.getElementById('apFilter')?.value || '';
+  try {
+    const r = await api('/approvals'+(filter?'?status='+filter:''));
+    const approvals = r.approvals || [];
+    const pending  = approvals.filter(a=>a.status==='pending').length;
+    const approved = approvals.filter(a=>a.status==='approved').length;
+    const rejected = approvals.filter(a=>a.status==='rejected').length;
+
+    document.getElementById('apPending').textContent  = pending;
+    document.getElementById('apApproved').textContent = approved;
+    document.getElementById('apRejected').textContent = rejected;
+    document.getElementById('approvalBadge').textContent = pending;
+    if(pending>0) document.getElementById('approvalBadge').classList.remove('hidden');
+    else document.getElementById('approvalBadge').classList.add('hidden');
+
+    const list = document.getElementById('approvalsList');
+    if(!approvals.length) {
+      list.innerHTML = `<div class="empty-state"><div class="empty-icon">✅</div><div class="empty-title">No approvals found</div></div>`;
+      return;
+    }
+    list.innerHTML = approvals.map(a => renderApprovalCard(a)).join('');
+  } catch(e) {
+    document.getElementById('approvalsList').innerHTML = `<div class="alert alert-error">Failed to load approvals. Supabase may not be configured.</div>`;
+  }
+}
+
+function renderApprovalCard(a) {
+  const vars = a.variations || [];
+  return `
+  <div class="approval-card ${a.status||'pending'}">
+    <div class="approval-card-meta">
+      <span class="badge ${statusBadge(a.status)}">${a.status||'pending'}</span>
+      <span>${a.topic||'No topic'}</span>
+      <span>${a.scheduled_for||a.created_at?.slice(0,10)||'—'}</span>
+    </div>
+    ${vars.length ? `
+    <div style="margin-bottom:10px">
+      ${vars.slice(0,1).map((v,i)=>`
+        <div style="background:var(--bg3);border-radius:var(--r-sm);padding:10px;font-size:12px;color:var(--text2);line-height:1.6">
+          <div style="font-family:var(--font-mono);font-size:9px;color:var(--accent);margin-bottom:5px">VARIATION ${String.fromCharCode(65+i)}</div>
+          ${truncate(v.text||'',200)}
+        </div>`).join('')}
+    </div>` : ''}
+    ${a.status==='pending' ? `
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn btn-success btn-sm" onclick="doApprovalAction('${a.id}','approve',0,0)">✓ Approve</button>
+      <button class="btn btn-secondary btn-sm" onclick="openApprovalDetail('${a.id}')">View All Variations</button>
+      <button class="btn btn-danger btn-sm" onclick="doApprovalAction('${a.id}','reject')">✗ Reject</button>
+      <button class="btn btn-secondary btn-sm" onclick="doApprovalAction('${a.id}','skip')">⏭ Skip</button>
+    </div>` : `<div style="font-size:11px;color:var(--text3);font-family:var(--font-mono)">
+      ${a.status==='approved'?`✅ Approved at ${a.approved_at?.slice(0,16)||'—'}`:''}
+      ${a.status==='rejected'?'❌ Rejected':''}
+    </div>`}
+  </div>`;
+}
+
+async function doApprovalAction(approvalId, action, varIdx=0, imgIdx=0) {
+  try {
+    await api('/approvals/action', 'POST', {
+      approval_id: approvalId, action, variation_index: varIdx, image_index: imgIdx
+    });
+    toast(`Post ${action}d!`, action==='approve'?'success':'info');
+    loadApprovals();
+  } catch(e) {
+    toast('Action failed: '+(e.data?.detail||'error'), 'error');
+  }
+}
+
+function openApprovalDetail(approvalId) {
+  toast('Full approval detail requires Supabase with approval data', 'info');
+}
+
+// ═══════════════════════════════════════════════════════
+//  JOBS
+// ═══════════════════════════════════════════════════════
+async function loadJobs() {
+  const filter = document.getElementById('jobFilter')?.value || '';
+  const url = '/jobs'+(filter?'?status='+filter:'');
+  try {
+    const { stats, jobs } = await api(url);
+    document.getElementById('jTotal').textContent   = stats.total;
+    document.getElementById('jPending').textContent = stats.pending;
+    document.getElementById('jPosted').textContent  = stats.posted;
+    document.getElementById('jFailed').textContent  = stats.failed;
+    document.getElementById('jobsBadge').textContent = stats.pending;
+    allJobs = jobs;
+
+    const tbody = document.getElementById('jobTableBody');
+    if(!jobs.length) {
+      tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text3);padding:36px">No jobs found</td></tr>';
+      return;
+    }
+    tbody.innerHTML = jobs.map(j=>`
+      <tr>
+        <td><span style="font-family:var(--font-mono);font-size:10px;color:var(--text3)">${String(j.id || '').slice(0,8)}</span></td>
+        <td><span style="font-family:var(--font-mono);font-size:11px">${j.datetime||'—'}</span></td>
+        <td><span class="badge ${statusBadge(j.status)}">${j.status||'pending'}</span></td>
+        <td><span style="font-size:11px;color:var(--text3)">${j.mode==='ai_auto'?'🤖 AI':j.post_type||'—'}</span></td>
+        <td><span style="font-size:11px;color:var(--text2)">${truncate(j.text||j.topic||'—',60)}</span></td>
+        <td>${j.image_path?'<span class="badge badge-blue">🖼</span>':'<span style="color:var(--text3)">—</span>'}</td>
+        <td><button class="btn btn-danger btn-sm" onclick="deleteJob('${String(j.id || '')}')">🗑</button></td>
+      </tr>`).join('');
+  } catch(e) {
+  console.error("LOAD JOBS ERROR:", e);
+
+  document.getElementById('jobTableBody').innerHTML =
+    `<tr>
+      <td colspan="7" style="color:red;padding:20px">
+        ${e.message || JSON.stringify(e)}
+      </td>
+    </tr>`;
+}
+}
+
+async function deleteJob(id) {
+  if(!confirm('Delete this job?')) return;
+  try {
+    await api('/jobs/'+id, 'DELETE');
+    toast('Job deleted', 'success');
+    loadJobs();
+    refreshDashboard();
+  } catch(e) { toast('Delete failed', 'error'); }
+}
+
+async function clearAllJobs() {
+  if(!confirm('Delete ALL jobs? This cannot be undone.')) return;
+  try {
+    await api('/jobs', 'DELETE');
+    toast('All jobs cleared', 'success');
+    loadJobs();
+    refreshDashboard();
+  } catch(e) { toast('Clear failed', 'error'); }
+}
+
+// ═══════════════════════════════════════════════════════
+//  ANALYTICS
+// ═══════════════════════════════════════════════════════
+async function loadAnalytics() {
+  try {
+    const r = await api('/analytics');
+    document.getElementById('anTotal').textContent       = r.total_posts;
+    document.getElementById('anPosted').textContent      = r.posted;
+    document.getElementById('anApprovalRate').textContent = r.approval_rate+'%';
+    document.getElementById('anSuccessRate').textContent  = r.success_rate+'%';
+
+    // Weekly chart
+    const weekly = r.posts_per_week || {};
+    const weeks  = Object.keys(weekly).sort().slice(-8);
+    const vals   = weeks.map(w=>weekly[w]||0);
+    const maxVal = Math.max(...vals, 1);
+
+    document.getElementById('weeklyChart').innerHTML = `
+      <div style="display:flex;gap:12px;align-items:flex-end">
+        ${weeks.map((w,i)=>`
+        <div style="flex:1;text-align:center">
+          <div class="mini-bar" style="height:${Math.round((vals[i]/maxVal)*56)+4}px">
+            <div style="position:absolute;top:-16px;left:50%;transform:translateX(-50%);font-family:var(--font-mono);font-size:8px;color:var(--text3)">${vals[i]}</div>
+          </div>
+          <div class="mini-bar-label">${w.split('-W')[1]||w}</div>
+        </div>`).join('')}
+      </div>
+      ${weeks.length===0?'<div class="empty-state" style="padding:24px"><div class="empty-icon">📊</div><div class="empty-title">No data yet</div></div>':''}`;
+
+    document.getElementById('analyticsSummary').innerHTML = `
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <div class="stat-card" style="padding:14px">
+          <div style="font-size:11px;color:var(--text3);font-family:var(--font-mono);margin-bottom:4px">PUBLISHED POSTS</div>
+          <div style="font-size:22px;font-family:var(--font-mono);color:var(--green2)">${r.posted}</div>
+        </div>
+        <div class="stat-card" style="padding:14px">
+          <div style="font-size:11px;color:var(--text3);font-family:var(--font-mono);margin-bottom:4px">FAILED POSTS</div>
+          <div style="font-size:22px;font-family:var(--font-mono);color:var(--red)">${r.failed}</div>
+        </div>
+      </div>`;
+  } catch(e) {
+    toast('Analytics load failed', 'error');
+  }
+}
+
+// ═══════════════════════════════════════════════════════
+//  SETTINGS
+// ═══════════════════════════════════════════════════════
+function saveApiConfig() {
+  const val = document.getElementById('apiBaseInput').value.trim().replace(/\/+$/,'');
+  if(!val) { toast('Enter a valid URL', 'error'); return; }
+  API_BASE = val;
+  localStorage.setItem('li_api_base', val);
+  document.getElementById('apiUrlChip').textContent = val.replace(/https?:\/\//,'');
+  toast('API config saved. Reconnecting...', 'info');
+  refreshAll();
+}
+
+async function testApi() {
+  const method = document.getElementById('testMethod').value;
+  const path   = document.getElementById('testPath').value || '/health';
+  const rawBody = document.getElementById('testBody').value.trim();
+  const el = document.getElementById('testResult');
+  const body_el = document.getElementById('testResultBody');
+  el.style.display='';
+  el.classList.remove('hidden');
+  body_el.textContent = 'Sending...';
+  try {
+    let body = null;
+    if(method==='POST' && rawBody) body = JSON.parse(rawBody);
+    const r = await api(path, method, body);
+    body_el.textContent = JSON.stringify(r, null, 2);
+  } catch(e) {
+    body_el.textContent = 'ERROR: '+JSON.stringify(e.data||e, null, 2);
+  }
+}
+
+// ═══════════════════════════════════════════════════════
+//  INIT — POPULATE SELECTS + BOOT
+// ═══════════════════════════════════════════════════════
+function initSelects() {
+  const setOpts = (id, arr) => {
+    const el = document.getElementById(id);
+    if(!el) return;
+    el.innerHTML = arr.map(v=>`<option value="${v}">${v}</option>`).join('');
+  };
+  setOpts('genPostType', POST_TYPES);
+  setOpts('genTone', TONES);
+  setOpts('genMood', MOODS);
+  setOpts('campTone', TONES);
+}
+
+function initDateInputs() {
+  const now = new Date();
+  const pad = n => String(n).padStart(2,'0');
+  const local = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`;
+  const dateOnly = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}`;
+
+  const schedDt = document.getElementById('schedDateTime');
+  if(schedDt) schedDt.value = local;
+
+  const campStart = document.getElementById('campStart');
+  if(campStart) campStart.value = dateOnly;
+}
+
+function initApiConfig() {
+  const apiInput = document.getElementById('apiBaseInput');
+  if(apiInput) apiInput.value = API_BASE;
+  document.getElementById('apiUrlChip').textContent = API_BASE.replace(/https?:\/\//,'');
+}
+
+async function boot() {
+  initSelects();
+  initDateInputs();
+  initApiConfig();
+  buildGradientGrid();
+  await refreshAll();
+  await loadProfile();
+  await checkAuthStatus();
+}
+
+document.addEventListener('DOMContentLoaded', boot);
+</script>
+</body>
+</html>
