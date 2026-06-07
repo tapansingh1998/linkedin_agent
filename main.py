@@ -49,8 +49,10 @@ try:
     load_dotenv()
 except ImportError:
     pass
-import google.generativeai as genai
+
 import threading
+import tempfile
+
 GEMINI_API_KEYS = [
     os.getenv("GEMINI_API_KEY_1"),
     os.getenv("GEMINI_API_KEY_2"),
@@ -87,7 +89,7 @@ def get_next_gemini_model():
 CONFIG = {
     "LINKEDIN_CLIENT_ID":     os.environ.get("LINKEDIN_CLIENT_ID", ""),
     "LINKEDIN_CLIENT_SECRET": os.environ.get("LINKEDIN_CLIENT_SECRET", ""),
-    "LINKEDIN_REDIRECT_URI":  os.environ.get("LINKEDIN_REDIRECT_URI"),
+    "LINKEDIN_REDIRECT_URI":  os.environ.get("LINKEDIN_REDIRECT_URI", "http://localhost:8000/auth/callback"),
     "LINKEDIN_SCOPES":        os.environ.get("LINKEDIN_SCOPES", "openid profile w_member_social email"),
     
     "GEMINI_MODEL":           os.environ.get("GEMINI_MODEL", "gemini-2.0-flash"),
@@ -182,8 +184,6 @@ _TOKEN_FILE   = "li_tokens.json"
 _PROFILE_FILE = "li_profile.json"
 _JOBS_FILE    = "scheduler_jobs.json"
 _APPROVALS_FILE = "li_approvals.json"
-
-import uuid
 
 def upload_image_to_supabase(local_path):
     try:
@@ -545,12 +545,9 @@ def linkedin_post_text(access_token: str, urn: str, text: str) -> tuple:
     )
     return r.status_code, r.json()
 
-import tempfile
-import requests
-
 def download_temp_image(url):
     try:
-        r = requests.get(url, timeout=30)
+        r = http_requests.get(url, timeout=30)
 
         if r.status_code != 200:
             return None
@@ -1657,10 +1654,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-@app.get("/")
-def home():
-    return FileResponse("linkedin-studio-pro (4).html")
-
 # ── Pydantic Models ────────────────────────────────────────────────────────────
 
 class ProfileIn(BaseModel):
@@ -2124,7 +2117,7 @@ async def generate(data: GeneratePostIn):
         print(posters)
     return {
     "text":          cleaned_text,
-    "posters":       [p[2] if p[2] else (API_BASE + "/li_cache/" + os.path.basename(p[0])) for p in posters],
+    "posters":       [p[2] if p[2] else (CONFIG["APP_BASE_URL"] + "/li_cache/" + os.path.basename(p[0])) for p in posters],
     "image_sources": [p[1] for p in posters],
     "image_thumbs":  [img.get("thumb", "") for img in images],
     "topic":         data.topic,
@@ -2325,17 +2318,17 @@ async def create_campaign(data: CampaignIn):
             "company":     profile.get("company", ""),
             "domain":      profile.get("domain", ""),
             "product":     profile.get("product", ""),
+            "approval_email": profile.get("email", ""),
             "created_at":  datetime.datetime.utcnow().isoformat(),
         }
-      # AFTER (safe)
-    if supabase:
-        try:
-          supabase.table("scheduled_posts").insert(job).execute()
-        except Exception as e:
-            logger.warning(f"[Campaign] Supabase insert failed, using fallback: {e}")
+        if supabase:
+            try:
+                supabase.table("scheduled_posts").insert(job).execute()
+            except Exception as e:
+                logger.warning(f"[Campaign] Supabase insert failed, using fallback: {e}")
+                save_job(job)
+        else:
             save_job(job)
-    else:
-        save_job(job)
         created.append(job_id)
 
     return {
@@ -2412,9 +2405,14 @@ async def auto_campaign(data: AutoCampaignIn, background_tasks: BackgroundTasks)
                 "approval_email": data.approval_email or profile.get("email", ""),
                 "created_at":     datetime.datetime.utcnow().isoformat(),
             }
-            supabase.table(
-    "scheduled_posts"
-).insert(job).execute()
+            if supabase:
+                try:
+                    supabase.table("scheduled_posts").insert(job).execute()
+                except Exception as e:
+                    logger.warning(f"[AutoCampaign] Supabase insert failed, using fallback: {e}")
+                    save_job(job)
+            else:
+                save_job(job)
             created.append({
                 "id":       job_id,
                 "topic":    topic,
