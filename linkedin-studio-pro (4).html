@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>LinkedIn Studio PRO v4.0</title>
+<title>LinkedIn Studio PRO v4.1</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist+Mono:wght@300;400;500;600;700&family=Geist:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <style>
@@ -804,7 +804,7 @@ hr { border: none; border-top: 1px solid var(--border); margin: 18px 0; }
       <div class="logo-icon">Ln</div>
       LinkedIn Studio
     </div>
-    <div class="logo-badge">PRO v4.0 · AI ENGINE</div>
+    <div class="logo-badge">PRO v4.1 · RESEND · AI ENGINE</div>
   </div>
 
   <nav class="nav">
@@ -871,6 +871,14 @@ hr { border: none; border-top: 1px solid var(--border); margin: 18px 0; }
     </div>
 
     <div class="nav-section">
+      <div class="nav-label">Email</div>
+      <div class="nav-item" onclick="showPage('email')" id="nav-email">
+        <span class="nav-icon">📧</span> Email Agent
+        <span class="nav-badge" style="background:var(--purple);color:#fff" id="emailBadge" style="display:none">✉</span>
+      </div>
+    </div>
+
+    <div class="nav-section">
       <div class="nav-label">System</div>
       <div class="nav-item" onclick="showPage('settings')" id="nav-settings">
         <span class="nav-icon">⚙</span> Settings
@@ -882,6 +890,7 @@ hr { border: none; border-top: 1px solid var(--border); margin: 18px 0; }
     <div class="status-row"><div class="dot" id="dotLinkedin"></div>LinkedIn</div>
     <div class="status-row"><div class="dot" id="dotGemini"></div>Gemini AI</div>
     <div class="status-row"><div class="dot" id="dotSupabase"></div>Supabase</div>
+    <div class="status-row"><div class="dot" id="dotResend"></div>Resend Email</div>
     <div class="status-row"><div class="dot" id="dotProfile"></div>Profile Set</div>
   </div>
 </aside>
@@ -1688,11 +1697,115 @@ hr { border: none; border-top: 1px solid var(--border); margin: 18px 0; }
     </div>
   </div>
 
+  <!-- ══════════ EMAIL AGENT (RESEND) ══════════ -->
+  <div class="content hidden" id="page-email">
+
+    <!-- Info banner -->
+    <div class="alert alert-info" style="margin-bottom:18px">
+      📧 <strong>Resend Email Agent</strong> — Send topic selection or post approval emails via Resend. Recipients click one link to select a topic or approve &amp; publish a post directly from their inbox. No SMTP needed.
+    </div>
+
+    <!-- Profile summary -->
+    <div class="card" id="emailProfileCard">
+      <div class="card-header">
+        <div class="card-title">👤 Email Recipient</div>
+        <button class="btn btn-secondary btn-sm" onclick="showPage('profile')">Edit Profile →</button>
+      </div>
+      <div id="emailProfileSummary" style="font-size:13px;color:var(--text2)">Loading...</div>
+    </div>
+
+    <!-- ── TOPIC SELECTION EMAIL ── -->
+    <div class="card">
+      <div class="card-header">
+        <div>
+          <div class="card-title">🎯 Send Topic Selection Email</div>
+          <div class="card-subtitle">Recipient picks a topic → AI auto-drafts the post → approval email sent automatically</div>
+        </div>
+      </div>
+
+      <div class="alert alert-info">
+        💡 Leave topics blank to auto-generate from your brand profile (recommended). Or enter your own topics below.
+      </div>
+
+      <div class="form-group">
+        <label>Recipient Email (leave blank to use profile email)</label>
+        <input type="email" id="emailTopicTo" placeholder="you@company.com">
+      </div>
+
+      <div class="form-group">
+        <label>Custom Topics (one per line — optional, leave blank to auto-generate)</label>
+        <textarea id="emailTopicsInput" rows="5"
+          placeholder="e.g.&#10;How AI is reshaping enterprise workflows&#10;5 mistakes SaaS founders make in year 1&#10;The future of B2B sales in 2025"></textarea>
+      </div>
+
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn btn-primary btn-lg" onclick="sendTopicsEmail()" id="sendTopicsBtn">
+          📧 Send Topic Selection Email
+        </button>
+        <button class="btn btn-secondary" onclick="previewTopics()">
+          👁 Preview Topics First
+        </button>
+      </div>
+
+      <div id="topicsPreviewArea" class="hidden" style="margin-top:16px">
+        <div class="card-title mb-2" style="font-size:13px">Topics that will be emailed:</div>
+        <div id="topicsPreviewList" class="topic-grid"></div>
+        <button class="btn btn-primary" style="margin-top:10px" onclick="sendTopicsEmail()" id="sendTopicsBtn2">
+          ✉ Confirm &amp; Send Email
+        </button>
+      </div>
+
+      <div id="topicsEmailResult" style="margin-top:12px"></div>
+    </div>
+
+    <!-- ── HOW IT WORKS ── -->
+    <div class="card">
+      <div class="card-title mb-3">⚡ How Resend Email Agent Works</div>
+      <div style="display:flex;flex-direction:column;gap:14px">
+
+        <div style="display:grid;grid-template-columns:32px 1fr;gap:12px;align-items:flex-start">
+          <div style="width:32px;height:32px;border-radius:50%;background:rgba(14,165,233,0.15);border:1px solid var(--accent);display:flex;align-items:center;justify-content:center;font-family:var(--font-mono);font-size:12px;font-weight:700;color:var(--accent2);flex-shrink:0">1</div>
+          <div>
+            <div style="font-weight:600;font-size:13px">Send Topic Selection Email</div>
+            <div style="font-size:12px;color:var(--text3);margin-top:2px">AI generates 5 topic ideas for your niche. Recipient gets a beautifully formatted email with clickable buttons for each topic.</div>
+          </div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:32px 1fr;gap:12px;align-items:flex-start">
+          <div style="width:32px;height:32px;border-radius:50%;background:rgba(14,165,233,0.15);border:1px solid var(--accent);display:flex;align-items:center;justify-content:center;font-family:var(--font-mono);font-size:12px;font-weight:700;color:var(--accent2);flex-shrink:0">2</div>
+          <div>
+            <div style="font-weight:600;font-size:13px">Recipient Clicks a Topic</div>
+            <div style="font-size:12px;color:var(--text3);margin-top:2px">One click — AI instantly drafts a full post + fetches a relevant image. An approval email is automatically sent.</div>
+          </div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:32px 1fr;gap:12px;align-items:flex-start">
+          <div style="width:32px;height:32px;border-radius:50%;background:rgba(168,85,247,0.15);border:1px solid var(--purple);display:flex;align-items:center;justify-content:center;font-family:var(--font-mono);font-size:12px;font-weight:700;color:var(--purple);flex-shrink:0">3</div>
+          <div>
+            <div style="font-weight:600;font-size:13px">Approve &amp; Publish in One Click</div>
+            <div style="font-size:12px;color:var(--text3);margin-top:2px">Approval email shows the full post + image preview. Clicking "Approve &amp; Post" publishes directly to LinkedIn instantly. No dashboard needed.</div>
+          </div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:32px 1fr;gap:12px;align-items:flex-start">
+          <div style="width:32px;height:32px;border-radius:50%;background:rgba(16,185,129,0.15);border:1px solid var(--green);display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0">✓</div>
+          <div>
+            <div style="font-weight:600;font-size:13px">Required ENV Variables</div>
+            <div style="font-size:12px;color:var(--text3);margin-top:4px">
+              <code style="font-family:var(--font-mono);background:var(--bg3);padding:2px 6px;border-radius:4px;font-size:10px">RESEND_API_KEY</code> — from resend.com/api-keys<br>
+              <code style="font-family:var(--font-mono);background:var(--bg3);padding:2px 6px;border-radius:4px;font-size:10px;margin-top:4px;display:inline-block">SENDER_EMAIL</code> — verified domain email<br>
+              <code style="font-family:var(--font-mono);background:var(--bg3);padding:2px 6px;border-radius:4px;font-size:10px;margin-top:4px;display:inline-block">APPROVAL_EMAIL</code> — default recipient (optional)
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+  </div>
+
 </main>
 </div><!-- end .app -->
-
-<!-- ══════════════════════════════════════════════
-     REWRITE MODAL
 ══════════════════════════════════════════════ -->
 <div class="modal-overlay hidden" id="rewriteModal">
   <div class="modal">
@@ -1818,7 +1931,7 @@ const PAGE_TITLES = {
   generate: 'Generate Post', topics: 'AI Topic Generator', images: 'Image Browser',
   postnow: 'Post Now', schedule: 'Schedule Post', campaign: 'AI Campaign',
   calendar: 'Content Calendar', approvals: 'Approval Center', jobs: 'Job Queue',
-  analytics: 'Analytics', settings: 'Settings',
+  analytics: 'Analytics', settings: 'Settings', email: 'Email Agent (Resend)',
 };
 
 function showPage(id) {
@@ -1838,6 +1951,7 @@ function showPage(id) {
   if(id==='profile') loadProfile();
   if(id==='auth') checkAuthStatus();
   if(id==='topics') loadTopicProfile();
+  if(id==='email') loadEmailPageProfile();
 }
 async function loadTopicProfile(){
 
@@ -1889,6 +2003,7 @@ function updateStatusUI(h) {
     { label:'Scheduler', ok: h.scheduler==='running', icon:'⏱', sub: 'Background daemon' },
     { label:'Pixabay', ok: h.pixabay, icon:'🖼', sub: h.pixabay ? 'API key set' : 'No API key' },
     { label:'Pexels', ok: h.pexels, icon:'📷', sub: h.pexels ? 'API key set' : 'No API key' },
+    { label:'Resend Email', ok: h.resend, icon:'📧', sub: h.resend ? 'Ready to send' : 'API key missing' },
   ];
   grid.innerHTML = services.map(s=>`
     <div class="stat-card" style="padding:14px">
@@ -1910,6 +2025,7 @@ function updateStatusUI(h) {
   setDot('dotLinkedin', h.linkedin_token);
   setDot('dotGemini', h.gemini);
   setDot('dotSupabase', h.supabase);
+  setDot('dotResend', h.resend);
   setDot('dotProfile', false); // will be set by loadProfile
 
   // auth badge
@@ -3142,6 +3258,118 @@ async function testApi() {
     body_el.textContent = JSON.stringify(r, null, 2);
   } catch(e) {
     body_el.textContent = 'ERROR: '+JSON.stringify(e.data||e, null, 2);
+  }
+}
+
+// ═══════════════════════════════════════════════════════
+//  EMAIL AGENT (RESEND)
+// ═══════════════════════════════════════════════════════
+
+async function loadEmailPageProfile() {
+  try {
+    const p = await api('/profile');
+    const el = document.getElementById('emailProfileSummary');
+    if(!el) return;
+    if(p && p.company) {
+      el.innerHTML = `
+        <div style="display:flex;gap:18px;flex-wrap:wrap">
+          <div><span style="font-size:10px;color:var(--text3);font-family:var(--font-mono);text-transform:uppercase">Company</span><br><strong>${p.company||'—'}</strong></div>
+          <div><span style="font-size:10px;color:var(--text3);font-family:var(--font-mono);text-transform:uppercase">Domain</span><br><strong>${p.domain||'—'}</strong></div>
+          <div><span style="font-size:10px;color:var(--text3);font-family:var(--font-mono);text-transform:uppercase">Product</span><br><strong>${p.product||'—'}</strong></div>
+          <div><span style="font-size:10px;color:var(--text3);font-family:var(--font-mono);text-transform:uppercase">Default Email</span><br><strong style="color:${p.email?'var(--accent2)':'var(--red)'}">${p.email||'Not set — please add email to profile'}</strong></div>
+        </div>`;
+      // Pre-fill email fields with profile email
+      if(p.email) {
+      const toFields = ['emailTopicTo'];
+        toFields.forEach(id => {
+          const el = document.getElementById(id);
+          if(el && !el.value) el.placeholder = `${p.email} (from profile)`;
+        });
+      }
+    } else {
+      el.innerHTML = `<div class="alert alert-warn">Profile not set. <a href="#" onclick="showPage('profile');return false" style="color:var(--yellow)">Set your brand profile →</a></div>`;
+    }
+  } catch(e) {
+    document.getElementById('emailProfileSummary').textContent = 'Could not load profile.';
+  }
+}
+
+async function previewTopics() {
+  const rawTopics = document.getElementById('emailTopicsInput').value.trim();
+  let topics = [];
+
+  if(rawTopics) {
+    topics = rawTopics.split('\n').map(t=>t.trim()).filter(Boolean);
+  } else {
+    // auto-generate
+    setLoading('sendTopicsBtn', true, 'Generating topics...');
+    try {
+      const r = await api('/generate-topics', 'POST', {});
+      topics = r.topics || [];
+    } catch(e) {
+      toast('Failed to generate topics: '+(e.data?.detail||'Check Gemini API key'), 'error');
+      setLoading('sendTopicsBtn', false);
+      return;
+    } finally {
+      setLoading('sendTopicsBtn', false);
+    }
+  }
+
+  if(!topics.length) { toast('No topics to preview', 'error'); return; }
+
+  const listEl = document.getElementById('topicsPreviewList');
+  listEl.innerHTML = topics.map((t,i)=>`
+    <div class="topic-card" style="cursor:default">
+      <div class="topic-card-num">TOPIC ${String(i+1).padStart(2,'0')}</div>
+      <div class="topic-text">${t}</div>
+    </div>`).join('');
+
+  document.getElementById('topicsPreviewArea').classList.remove('hidden');
+  document.getElementById('topicsPreviewArea').scrollIntoView({behavior:'smooth',block:'start'});
+
+  // Store for send
+  window._previewedTopics = topics;
+  toast(`${topics.length} topics ready to send`, 'success');
+}
+
+async function sendTopicsEmail() {
+  const toEmail = document.getElementById('emailTopicTo').value.trim();
+  const rawTopics = document.getElementById('emailTopicsInput').value.trim();
+
+  let topics = window._previewedTopics || [];
+
+  if(!topics.length && rawTopics) {
+    topics = rawTopics.split('\n').map(t=>t.trim()).filter(Boolean);
+  }
+  // If still empty, backend will auto-generate
+
+  setLoading('sendTopicsBtn', true, 'Sending...');
+  setLoading('sendTopicsBtn2', true, 'Sending...');
+
+  try {
+    const body = { topics };
+    if(toEmail) body.to_email = toEmail;
+
+    const r = await api('/email/send-topics', 'POST', body);
+
+    document.getElementById('topicsEmailResult').innerHTML = `
+      <div class="alert alert-success">
+        ✅ Topic selection email sent to <strong>${r.recipient}</strong> with <strong>${r.count}</strong> topic options.<br>
+        <span style="font-size:11px;opacity:0.8">Recipient clicks a topic → AI drafts post → approval email auto-sent.</span>
+      </div>`;
+
+    toast('Topic email sent!', 'success', 6000);
+    window._previewedTopics = null;
+    document.getElementById('topicsPreviewArea').classList.add('hidden');
+    document.getElementById('emailTopicsInput').value = '';
+
+  } catch(e) {
+    const msg = e.data?.detail || JSON.stringify(e.data) || 'Unknown error';
+    document.getElementById('topicsEmailResult').innerHTML = `<div class="alert alert-error">❌ ${msg}</div>`;
+    toast('Send failed: '+msg.slice(0,80), 'error');
+  } finally {
+    setLoading('sendTopicsBtn', false);
+    setLoading('sendTopicsBtn2', false);
   }
 }
 
