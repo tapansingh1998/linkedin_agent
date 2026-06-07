@@ -1535,97 +1535,159 @@ def _process_approval_notifications():
 
 
 def _post_approved_jobs():
-    """Post all jobs that have been approved and are due."""
-    now_str  = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
-    token    = get_token()
-    profile  = get_profile()
+    """Post approved jobs whose scheduled time has arrived."""
+
+    now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+
+    token = get_token()
+    profile = get_profile()
+
     all_jobs = get_all_jobs()
 
-    # Jobs eligible to post: 'approved' status and due, OR 'pending' with no approval_email (auto-post)
-    due = [
-    j for j in all_jobs
-    if j.get("status") == "approved"
-    and j.get("datetime")
-    and j.get("datetime") <= now_str
-]
-    logger.info(f"[Scheduler] Found {len(due)} approved jobs") 
-    for job in due:
-        job_id = str(job.get("id", ""))
-        urn    = job.get("urn") or profile.get("urn", "")
-        logger.info(f"[Scheduler] Processing job {job_id}")
+    due_jobs = [
+        j for j in all_jobs
+        if str(j.get("status", "")).lower() == "approved"
+        and j.get("datetime")
+        and str(j.get("datetime")) <= now_str
+    ]
 
-        if not token or not urn:
-            update_job_status(job_id, "failed (no token/urn)")
-            continue
+    logger.info(f"[Scheduler] Found {len(due_jobs)} approved jobs")
+
+    for job in due_jobs:
+
+        job_id = str(job.get("id", ""))
 
         try:
-            # Resolve post text
-            if job.get("status") == "approved":
-                # Use approved text if available
-                text = job.get("approved_text") or job.get("text") or ""
-                if not text and job.get("mode") == "ai_auto":
-                    pdata = {k: job.get(k, "") for k in ["company", "domain", "product"]}
-                    text = clean_for_linkedin(generate_post_text(
-                        pdata, job.get("post_type", "Brand Announcement"),
-                        job.get("tone", "Executive Authority"),
-                        job.get("mood", "Professional"),
-                        job.get("topic", "industry trends")
-                    ))
-            elif job.get("mode") == "ai_auto":
-                pdata = {k: job.get(k, "") for k in ["company", "domain", "product"]}
-                text = clean_for_linkedin(generate_post_text(
-                    pdata, job.get("post_type", "Brand Announcement"),
-                    job.get("tone", "Executive Authority"),
-                    job.get("mood", "Professional"),
-                    job.get("topic", "industry trends")
-                ))
-            else:
-                text = clean_for_linkedin(job.get("text", ""))
+
+            urn = (
+                job.get("urn")
+                or profile.get("urn")
+                or ""
+            )
+
+            if not token:
+                logger.error(f"[Scheduler] Job {job_id}: Missing LinkedIn token")
+                update_job_status(job_id, "failed")
+                continue
+
+            if not urn:
+                logger.error(f"[Scheduler] Job {job_id}: Missing LinkedIn URN")
+                update_job_status(job_id, "failed")
+                continue
+
+            text = (
+                job.get("approved_text")
+                or job.get("text")
+                or ""
+            )
+
+            text = clean_for_linkedin(text)
 
             if not text:
-                update_job_status(job_id, "failed (empty text)")
+                logger.error(f"[Scheduler] Job {job_id}: Empty post text")
+                update_job_status(job_id, "failed")
                 continue
 
             image_path = job.get("image_path")
-            image_url_stored = job.get("image_url")
+            image_url = job.get("image_url")
 
-            # Prefer local path; fall back to downloading from Supabase URL
-            if not (image_path and os.path.exists(str(image_path))) and image_url_stored:
-                image_path = download_temp_image(image_url_stored)
+            if (
+                (not image_path or not os.path.exists(str(image_path)))
+                and image_url
+            ):
+                try:
+                    image_path = download_temp_image(image_url)
+                except Exception as img_err:
+                    logger.error(
+                        f"[Scheduler] Image download failed: {img_err}"
+                    )
+                    image_path = None
+
+            logger.info(
+                f"[Scheduler] Posting job {job_id}"
+            )
 
             if image_path and os.path.exists(str(image_path)):
-                st, resp = linkedin_post_with_image(token, urn, text, image_path)
-            else:
-                st, resp = linkedin_post_text(token, urn, text)
 
-            new_status = "posted" if st in (200, 201) else f"failed (HTTP {st})"
-            if st in (200, 201):
-                logger.info(f"[Scheduler] Job {job_id} posted successfully. LinkedIn response: {resp}")
+                status_code, response = linkedin_post_with_image(
+                    token,
+                    urn,
+                    text,
+                    image_path
+                )
+
             else:
-                logger.error(f"[Scheduler] Job {job_id} FAILED. LinkedIn status={st}, response={resp}")
+
+                status_code, response = linkedin_post_text(
+                    token,
+                    urn,
+                    text
+                )
+
+            logger.info(
+                f"[LinkedIn] Status={status_code} Response={response}"
+            )
+
+            if status_code in (200, 201):
+
+                update_job_status(
+                    job_id,
+                    "posted",
+                    {
+                        "posted_at": datetime.datetime.utcnow().isoformat()
+                    }
+                )
+
+                logger.info(
+                    f"[Scheduler] Job {job_id} posted successfully"
+                )
+
+            else:
+
+                update_job_status(
+                    job_id,
+                    f"failed_http_{status_code}"
+                )
+
+                logger.error(
+                    f"[Scheduler] Job {job_id} failed. "
+                    f"Status={status_code}"
+                )
+
         except Exception as ex:
-            new_status = f"failed ({str(ex)[:80]})"
-            logger.error(f"[Scheduler] Job {job_id} error: {ex}")
 
-        update_job_status(job_id, new_status, {"posted_at": datetime.datetime.utcnow().isoformat()})
+            logger.exception(
+                f"[Scheduler] Job {job_id} exception: {ex}"
+            )
 
-
+            update_job_status(
+                job_id,
+                "failed"
+            )
 def run_scheduler_daemon():
-    logger.info("[Scheduler] Started — checking every 30s")
+
+    logger.info("[Scheduler] Started")
+
     cycle = 0
+
     while True:
+
         try:
+
             cycle += 1
-            # Every cycle: check for due jobs to post
+
             _post_approved_jobs()
-            # Every 5 cycles (~2.5 min): check for approval notifications
+
             if cycle % 5 == 0:
                 _process_approval_notifications()
-        except Exception as loop_err:
-            logger.error(f"[Scheduler] Loop error: {loop_err}")
+
+        except Exception as e:
+
+            logger.exception(
+                f"[Scheduler] Loop error: {e}"
+            )
+
         time.sleep(30)
-
-
 # ═══════════════════════════════════════════════════════════════════════════════
 #  FASTAPI APPLICATION
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -2533,60 +2595,177 @@ async def approval_link_handler(
         msg, color = "⏭ Post skipped.", "#64748b"
 
     elif choice:
-        vi   = ord(choice.lower()) - ord('a')
+    
+        vi = ord(choice.lower()) - ord('a')
+    
         vars_ = approval.get("variations", [])
-        text  = vars_[vi].get("text", "") if vi < len(vars_) else ""
-        update_approval(approval_id, {
-            "status":            "approved",
-            "selected_variation": vi,
-            "selected_image":    image,
-            "approved_text":     text,
-            "approved_at":       datetime.datetime.utcnow().isoformat(),
-        })
+    
+        text = ""
+    
+        if 0 <= vi < len(vars_):
+            text = vars_[vi].get("text", "")
+    
+        selected_image_url = ""
+    
+        imgs = approval.get("image_urls", [])
+    
+        if imgs and 0 <= image < len(imgs):
+            selected_image_url = imgs[image]
+    
+        update_approval(
+            approval_id,
+            {
+                "status": "approved",
+                "selected_variation": vi,
+                "selected_image": image,
+                "approved_text": text,
+                "approved_at": datetime.datetime.utcnow().isoformat(),
+            },
+        )
+    
         if approval.get("job_id"):
-            update_job_status(approval["job_id"], "approved", {"approved_text": text})
-
-        # ── Immediately publish to LinkedIn on approval ──────────────────────
+    
+            update_job_status(
+                approval["job_id"],
+                "approved",
+                {
+                    "approved_text": text,
+                    "image_url": selected_image_url,
+                },
+            )
+    
         try:
+    
             job_id_to_post = approval.get("job_id")
+    
             if job_id_to_post:
+    
                 all_jobs = get_all_jobs()
-                job = next((j for j in all_jobs if str(j.get("id")) == str(job_id_to_post)), None)
+    
+                job = next(
+                    (
+                        j
+                        for j in all_jobs
+                        if str(j.get("id")) == str(job_id_to_post)
+                    ),
+                    None,
+                )
+    
                 if job:
-                    token   = get_token()
+    
+                    token = get_token()
+    
                     profile = get_profile()
-                    urn     = job.get("urn") or profile.get("urn", "")
+    
+                    urn = job.get("urn") or profile.get("urn", "")
+    
                     post_text = text or job.get("text", "")
+    
+                    image_path = None
+    
+                    if selected_image_url:
+    
+                        try:
+                            image_path = download_temp_image(
+                                selected_image_url
+                            )
+                        except Exception as img_err:
+                            logger.error(
+                                f"[Approve] Image download failed: {img_err}"
+                            )
+    
                     if token and urn and post_text:
-                        image_url_stored = job.get("image_url")
-                        image_path = None
-                        if image_url_stored:
-                            image_path = download_temp_image(image_url_stored)
-                        if image_path and os.path.exists(str(image_path)):
-                            st, resp = linkedin_post_with_image(token, urn, post_text, image_path)
+    
+                        if image_path and os.path.exists(image_path):
+    
+                            st, resp = linkedin_post_with_image(
+                                token,
+                                urn,
+                                post_text,
+                                image_path,
+                            )
+    
                         else:
-                            st, resp = linkedin_post_text(token, urn, post_text)
-                        logger.info(f"[Approve] LinkedIn post result: status={st}, response={resp}")
+    
+                            st, resp = linkedin_post_text(
+                                token,
+                                urn,
+                                post_text,
+                            )
+    
+                        logger.info(
+                            f"[Approve] LinkedIn status={st}"
+                        )
+    
+                        logger.info(
+                            f"[Approve] LinkedIn response={resp}"
+                        )
+    
                         if st in (200, 201):
-                            update_job_status(job_id_to_post, "posted", {"posted_at": datetime.datetime.utcnow().isoformat()})
-                            msg, color = f"✅ Variation {choice.upper()} approved & posted to LinkedIn!", "#22c55e"
+    
+                            update_job_status(
+                                job_id_to_post,
+                                "posted",
+                                {
+                                    "posted_at":
+                                    datetime.datetime.utcnow().isoformat()
+                                },
+                            )
+    
+                            msg = (
+                                f"✅ Variation "
+                                f"{choice.upper()} approved and posted!"
+                            )
+    
+                            color = "#22c55e"
+    
                         else:
-                            logger.error(f"[Approve] LinkedIn post failed: {st} {resp}")
-                            msg, color = f"✅ Variation {choice.upper()} approved (LinkedIn error: {st})", "#f59e0b"
+    
+                            logger.error(
+                                f"[Approve] LinkedIn failed "
+                                f"status={st} response={resp}"
+                            )
+    
+                            msg = (
+                                f"⚠ Approved but LinkedIn failed "
+                                f"(HTTP {st})"
+                            )
+    
+                            color = "#f59e0b"
+    
                     else:
-                        logger.warning(f"[Approve] Missing token/urn/text for immediate post job={job_id_to_post}")
-                        msg, color = f"✅ Variation {choice.upper()} approved! (will post at scheduled time)", "#22c55e"
+    
+                        msg = (
+                            f"⚠ Approved but missing "
+                            f"token / urn / text"
+                        )
+    
+                        color = "#f59e0b"
+    
                 else:
-                    msg, color = f"✅ Variation {choice.upper()} approved!", "#22c55e"
+    
+                    msg = "⚠ Job not found."
+    
+                    color = "#f59e0b"
+    
             else:
-                msg, color = f"✅ Variation {choice.upper()} approved!", "#22c55e"
-        except Exception as _post_err:
-            logger.error(f"[Approve] Immediate post error: {_post_err}")
-            msg, color = f"✅ Variation {choice.upper()} approved! (will post at scheduled time)", "#22c55e"
-
-    else:
-        msg, color = "⚠ Unknown action.", "#f59e0b"
-
+    
+                msg = "⚠ No linked job."
+    
+                color = "#f59e0b"
+    
+        except Exception as ex:
+    
+            logger.exception(
+                f"[Approve] Immediate post exception: {ex}"
+            )
+    
+            msg = (
+                f"⚠ Approved but posting failed: "
+                f"{str(ex)[:120]}"
+            )
+    
+    color = "#f59e0b"
     icon = "✅" if "approved" in msg.lower() else ("❌" if "rejected" in msg.lower() else "⏭")
     return HTMLResponse(content=f"""<!DOCTYPE html>
 <html>
