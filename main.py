@@ -622,9 +622,7 @@ def linkedin_post_with_image(access_token: str, urn: str, text: str, image_path:
         json=payload, timeout=20,
     )
     return r.status_code, r.json()
-@app.get("/debug/profile")
-async def debug_profile():
-    return get_profile()
+
 # ═══════════════════════════════════════════════════════════════════════════════
 #  GEMINI AI + OPENROUTER FALLBACK
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1303,6 +1301,9 @@ async def get_analytics():
         "success_rate":  round(posted/(posted+failed)*100 if (posted+failed) else 0, 1),
         "posts_per_week": weekly, "posts_per_day": daily,
     }
+@app.get("/debug/profile")
+async def debug_profile():
+    return get_profile()    
 
 # ── Auth ───────────────────────────────────────────────────────────────────────
 @app.get("/auth/login")
