@@ -1766,36 +1766,42 @@ hr { border: none; border-top: 1px solid var(--border); margin: 18px 0; }
         <div style="display:grid;grid-template-columns:32px 1fr;gap:12px;align-items:flex-start">
           <div style="width:32px;height:32px;border-radius:50%;background:rgba(14,165,233,0.15);border:1px solid var(--accent);display:flex;align-items:center;justify-content:center;font-family:var(--font-mono);font-size:12px;font-weight:700;color:var(--accent2);flex-shrink:0">1</div>
           <div>
-            <div style="font-weight:600;font-size:13px">Send Topic Selection Email</div>
-            <div style="font-size:12px;color:var(--text3);margin-top:2px">AI generates 5 topic ideas for your niche. Recipient gets a beautifully formatted email with clickable buttons for each topic.</div>
+            <div style="font-weight:600;font-size:13px">You click "Send Topic Selection Email"</div>
+            <div style="font-size:12px;color:var(--text3);margin-top:2px">AI generates 5 topic ideas for your niche. Resend delivers a beautiful email to the recipient with clickable topic buttons. Route: <code style="font-size:10px;background:var(--bg3);padding:1px 5px;border-radius:3px">POST /email/send-topics</code></div>
           </div>
         </div>
 
         <div style="display:grid;grid-template-columns:32px 1fr;gap:12px;align-items:flex-start">
           <div style="width:32px;height:32px;border-radius:50%;background:rgba(14,165,233,0.15);border:1px solid var(--accent);display:flex;align-items:center;justify-content:center;font-family:var(--font-mono);font-size:12px;font-weight:700;color:var(--accent2);flex-shrink:0">2</div>
           <div>
-            <div style="font-weight:600;font-size:13px">Recipient Clicks a Topic</div>
-            <div style="font-size:12px;color:var(--text3);margin-top:2px">One click — AI instantly drafts a full post + fetches a relevant image. An approval email is automatically sent.</div>
+            <div style="font-weight:600;font-size:13px">Recipient clicks a topic</div>
+            <div style="font-size:12px;color:var(--text3);margin-top:2px">One click → AI instantly drafts full LinkedIn post + fetches a relevant image. Route: <code style="font-size:10px;background:var(--bg3);padding:1px 5px;border-radius:3px">GET /select-topic/{token}</code></div>
           </div>
         </div>
 
         <div style="display:grid;grid-template-columns:32px 1fr;gap:12px;align-items:flex-start">
           <div style="width:32px;height:32px;border-radius:50%;background:rgba(168,85,247,0.15);border:1px solid var(--purple);display:flex;align-items:center;justify-content:center;font-family:var(--font-mono);font-size:12px;font-weight:700;color:var(--purple);flex-shrink:0">3</div>
           <div>
-            <div style="font-weight:600;font-size:13px">Approve &amp; Publish in One Click</div>
-            <div style="font-size:12px;color:var(--text3);margin-top:2px">Approval email shows the full post + image preview. Clicking "Approve &amp; Post" publishes directly to LinkedIn instantly. No dashboard needed.</div>
+            <div style="font-weight:600;font-size:13px">Approval email auto-sent via Resend</div>
+            <div style="font-size:12px;color:var(--text3);margin-top:2px">Shows the full post + image preview with Approve and Reject buttons. No dashboard needed.</div>
           </div>
         </div>
 
         <div style="display:grid;grid-template-columns:32px 1fr;gap:12px;align-items:flex-start">
           <div style="width:32px;height:32px;border-radius:50%;background:rgba(16,185,129,0.15);border:1px solid var(--green);display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0">✓</div>
           <div>
-            <div style="font-weight:600;font-size:13px">Required ENV Variables</div>
-            <div style="font-size:12px;color:var(--text3);margin-top:4px">
-              <code style="font-family:var(--font-mono);background:var(--bg3);padding:2px 6px;border-radius:4px;font-size:10px">RESEND_API_KEY</code> — from resend.com/api-keys<br>
-              <code style="font-family:var(--font-mono);background:var(--bg3);padding:2px 6px;border-radius:4px;font-size:10px;margin-top:4px;display:inline-block">SENDER_EMAIL</code> — verified domain email<br>
-              <code style="font-family:var(--font-mono);background:var(--bg3);padding:2px 6px;border-radius:4px;font-size:10px;margin-top:4px;display:inline-block">APPROVAL_EMAIL</code> — default recipient (optional)
-            </div>
+            <div style="font-weight:600;font-size:13px">Recipient clicks "Approve & Post" → published instantly</div>
+            <div style="font-size:12px;color:var(--text3);margin-top:2px">Route: <code style="font-size:10px;background:var(--bg3);padding:1px 5px;border-radius:3px">GET /email-approve/{token}</code> → publishes text + image to LinkedIn immediately.</div>
+          </div>
+        </div>
+
+        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:14px;margin-top:4px">
+          <div style="font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;margin-bottom:8px">Required ENV Variables</div>
+          <div style="font-size:12px;color:var(--text2);display:flex;flex-direction:column;gap:6px">
+            <div><code style="font-family:var(--font-mono);background:var(--bg3);padding:2px 8px;border-radius:4px;font-size:11px">RESEND_API_KEY</code> — from <strong>resend.com/api-keys</strong></div>
+            <div><code style="font-family:var(--font-mono);background:var(--bg3);padding:2px 8px;border-radius:4px;font-size:11px">SENDER_EMAIL</code> — verified domain email in Resend</div>
+            <div><code style="font-family:var(--font-mono);background:var(--bg3);padding:2px 8px;border-radius:4px;font-size:11px">APPROVAL_EMAIL</code> — default recipient (or set in Brand Profile)</div>
+            <div><code style="font-family:var(--font-mono);background:var(--bg3);padding:2px 8px;border-radius:4px;font-size:11px">APP_BASE_URL</code> — your Render URL e.g. https://yourapp.onrender.com</div>
           </div>
         </div>
 
@@ -3333,40 +3339,43 @@ async function previewTopics() {
 }
 
 async function sendTopicsEmail() {
-  const toEmail = document.getElementById('emailTopicTo').value.trim();
-  const rawTopics = document.getElementById('emailTopicsInput').value.trim();
+  const rawTopics  = document.getElementById('emailTopicsInput').value.trim();
+  const toEmail    = document.getElementById('emailTopicTo').value.trim();
 
   let topics = window._previewedTopics || [];
-
-  if(!topics.length && rawTopics) {
-    topics = rawTopics.split('\n').map(t=>t.trim()).filter(Boolean);
+  if (!topics.length && rawTopics) {
+    topics = rawTopics.split('\n').map(t => t.trim()).filter(Boolean);
   }
-  // If still empty, backend will auto-generate
+  // empty = backend auto-generates from brand profile
 
   setLoading('sendTopicsBtn', true, 'Sending...');
   setLoading('sendTopicsBtn2', true, 'Sending...');
 
   try {
     const body = { topics };
-    if(toEmail) body.to_email = toEmail;
+    if (toEmail) body.to_email = toEmail;
 
     const r = await api('/email/send-topics', 'POST', body);
 
     document.getElementById('topicsEmailResult').innerHTML = `
       <div class="alert alert-success">
-        ✅ Topic selection email sent to <strong>${r.recipient}</strong> with <strong>${r.count}</strong> topic options.<br>
-        <span style="font-size:11px;opacity:0.8">Recipient clicks a topic → AI drafts post → approval email auto-sent.</span>
+        ✅ Topic selection email sent to <strong>${r.recipient}</strong> with <strong>${r.count}</strong> topics.<br>
+        <span style="font-size:11px;opacity:.8;margin-top:4px;display:block">
+          User clicks a topic → AI drafts post → approval email auto-sent → user clicks Approve → published to LinkedIn.
+          ${r.note ? '<br><strong style="color:var(--yellow)">⚠ ' + r.note + '</strong>' : ''}
+        </span>
       </div>`;
 
-    toast('Topic email sent!', 'success', 6000);
+    toast(`Topic email sent to ${r.recipient}!`, 'success', 6000);
     window._previewedTopics = null;
     document.getElementById('topicsPreviewArea').classList.add('hidden');
     document.getElementById('emailTopicsInput').value = '';
 
   } catch(e) {
     const msg = e.data?.detail || JSON.stringify(e.data) || 'Unknown error';
-    document.getElementById('topicsEmailResult').innerHTML = `<div class="alert alert-error">❌ ${msg}</div>`;
-    toast('Send failed: '+msg.slice(0,80), 'error');
+    document.getElementById('topicsEmailResult').innerHTML =
+      `<div class="alert alert-error">❌ ${msg}</div>`;
+    toast('Send failed: ' + msg.slice(0, 80), 'error');
   } finally {
     setLoading('sendTopicsBtn', false);
     setLoading('sendTopicsBtn2', false);
