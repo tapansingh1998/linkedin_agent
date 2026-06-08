@@ -65,7 +65,7 @@ except ImportError:
 CONFIG = {
     "LINKEDIN_CLIENT_ID":     os.environ.get("LINKEDIN_CLIENT_ID", ""),
     "LINKEDIN_CLIENT_SECRET": os.environ.get("LINKEDIN_CLIENT_SECRET", ""),
-    "LINKEDIN_REDIRECT_URI":  os.environ.get("LINKEDIN_REDIRECT_URI"),
+    "LINKEDIN_REDIRECT_URI":  os.environ.get("LINKEDIN_REDIRECT_URI", "http://localhost:8000/auth/callback"),
     "LINKEDIN_SCOPES":        os.environ.get("LINKEDIN_SCOPES", "openid profile w_member_social email"),
     "GEMINI_MODEL":           os.environ.get("GEMINI_MODEL", "gemini-2.0-flash"),
     "PIXABAY_API_KEY":        os.environ.get("PIXABAY_API_KEY", ""),
@@ -1754,6 +1754,350 @@ async def serve_cache(filename: str):
     if not os.path.exists(path):
         raise HTTPException(status_code=404, detail="File not found")
     return FileResponse(path)
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  EMAIL AGENT ROUTES  (Resend only — no SMTP)
+#
+#  Full flow:
+#    POST /email/send-topics
+#      → Resend sends topic-selection email to user
+#      → User clicks a topic  →  GET /select-topic/{token}
+#      → AI drafts post + fetches image
+#      → Resend sends approval email  →  GET /email-approve/{token}
+#      → Post published to LinkedIn (text or text+image)
+#
+#  Token store: pending_approvals.json  (file-based, single-user)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+_EA_STORE_FILE = "pending_approvals.json"
+
+def _ea_load() -> dict:
+    if os.path.exists(_EA_STORE_FILE):
+        try:
+            with open(_EA_STORE_FILE) as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {}
+
+def _ea_save(store: dict):
+    with open(_EA_STORE_FILE, "w") as f:
+        json.dump(store, f, indent=2)
+
+def _ea_create_token(data: dict) -> str:
+    token = secrets.token_urlsafe(32)
+    store = _ea_load()
+    store[token] = data
+    _ea_save(store)
+    return token
+
+def _ea_consume_token(token: str, expected_type: str) -> Optional[dict]:
+    store = _ea_load()
+    data  = store.pop(token, None)
+    if not data or data.get("type") != expected_type:
+        if data:
+            store[token] = data   # put back if wrong type
+        _ea_save(store)
+        return None
+    data.pop("type", None)
+    _ea_save(store)
+    return data
+
+def _ea_resend(subject: str, html: str, to_email: str) -> bool:
+    if not HAS_RESEND or not CONFIG["RESEND_API_KEY"]:
+        logger.info(f"[EmailAgent] DUMMY — would send to {to_email}: {subject}")
+        return False
+    try:
+        resend_lib.api_key = CONFIG["RESEND_API_KEY"]
+        resend_lib.Emails.send({
+            "from":    CONFIG["SENDER_EMAIL"],
+            "to":      to_email,
+            "subject": subject,
+            "html":    html,
+        })
+        logger.info(f"[EmailAgent] Sent → {to_email}")
+        return True
+    except Exception as e:
+        logger.warning(f"[EmailAgent] Send failed: {e}")
+        return False
+
+def _ea_topic_email_html(tokenized_topics: list) -> str:
+    base_url = CONFIG["APP_BASE_URL"]
+    cards = ""
+    for i, item in enumerate(tokenized_topics, 1):
+        topic     = item["topic"]
+        label     = topic if isinstance(topic, str) else topic.get("topic", str(topic))
+        angle     = "" if isinstance(topic, str) else topic.get("angle", "")
+        sel_url   = f"{base_url}/select-topic/{item['token']}"
+        cards += f"""
+<div style="border:1px solid #1e3a5f;border-radius:10px;padding:16px;margin-bottom:14px;background:#0a1628">
+  <div style="color:#0ea5e9;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em">Topic {i}</div>
+  <div style="font-size:15px;font-weight:600;margin:8px 0 4px;color:#f0f6fc">{escape(label)}</div>
+  {"<div style='font-size:13px;color:#94a3b8;margin-bottom:10px'>" + escape(angle) + "</div>" if angle else ""}
+  <a href="{sel_url}" style="display:inline-block;background:#0ea5e9;color:#000;border-radius:6px;
+     padding:9px 18px;font-size:13px;font-weight:700;text-decoration:none;margin-top:6px">
+    Select this topic →
+  </a>
+</div>"""
+    return f"""<!DOCTYPE html><html>
+<body style="font-family:'Segoe UI',sans-serif;background:#03050a;padding:24px;margin:0">
+<div style="background:#0a1628;border-radius:14px;max-width:600px;margin:0 auto;
+     border:1px solid #1b2d45;overflow:hidden">
+  <div style="background:linear-gradient(135deg,#0ea5e9,#a855f7);padding:22px 28px">
+    <h1 style="color:#fff;margin:0;font-size:20px">🎯 Choose Today's LinkedIn Topic</h1>
+    <p style="color:rgba(255,255,255,.8);margin:6px 0 0;font-size:13px">
+      Pick one — AI will draft the full post + find an image. You approve before it goes live.
+    </p>
+  </div>
+  <div style="padding:22px 28px">{cards}</div>
+  <div style="padding:12px 28px;border-top:1px solid #1e3a5f;font-size:11px;color:#475569">
+    Nothing publishes until you click Approve in the next email.
+  </div>
+</div>
+</body></html>"""
+
+def _ea_approval_email_html(post_text: str, topic: str, approve_url: str, reject_url: str,
+                             image_url: str = None, photographer: str = None) -> str:
+    escaped_post  = escape(post_text).replace("\n", "<br>")
+    escaped_topic = escape(topic[:80])
+    img_block = ""
+    if image_url:
+        img_block = f"""
+<div style="margin:18px 0 0">
+  <div style="font-size:11px;font-weight:700;text-transform:uppercase;color:#64748b;margin-bottom:6px">
+    Auto-selected image
+  </div>
+  <div style="border:1px solid #1e3a5f;border-radius:8px;overflow:hidden">
+    <img src="{escape(image_url)}" style="width:100%;max-height:280px;object-fit:cover;display:block">
+    {"<div style='padding:8px 12px;background:#0e1828;font-size:11px;color:#64748b'>📷 " + escape(photographer or "Stock Photo") + "</div>" if photographer else ""}
+  </div>
+</div>"""
+    return f"""<!DOCTYPE html><html>
+<body style="font-family:'Segoe UI',sans-serif;background:#03050a;padding:24px;margin:0">
+<div style="background:#0a1628;border-radius:14px;max-width:600px;margin:0 auto;
+     border:1px solid #1b2d45;overflow:hidden">
+  <div style="background:linear-gradient(135deg,#0ea5e9,#a855f7);padding:22px 28px">
+    <h1 style="color:#fff;margin:0;font-size:20px">🚀 LinkedIn Post Ready for Approval</h1>
+    <p style="color:rgba(255,255,255,.8);margin:6px 0 0;font-size:13px">
+      Click Approve to publish instantly to LinkedIn.
+    </p>
+  </div>
+  <div style="padding:22px 28px">
+    <div style="display:inline-block;background:#0ea5e9;color:#000;border-radius:6px;
+         padding:4px 12px;font-size:13px;font-weight:700;margin-bottom:16px">
+      {escaped_topic}
+    </div>
+    <div style="background:#0e1828;border:1px solid #1e3a5f;border-radius:8px;padding:16px;
+         font-size:14px;line-height:1.8;color:#e8f0fc">
+      {escaped_post}
+    </div>
+    {img_block}
+  </div>
+  <div style="padding:0 28px 24px;display:flex;gap:12px">
+    <a href="{approve_url}" style="display:inline-block;background:#0ea5e9;color:#000;
+       border-radius:8px;padding:13px 30px;font-size:15px;font-weight:700;text-decoration:none">
+      ✓ Approve &amp; Post to LinkedIn
+    </a>
+    <a href="{reject_url}" style="display:inline-block;background:rgba(239,68,68,.15);color:#ef4444;
+       border:1px solid rgba(239,68,68,.3);border-radius:8px;padding:13px 22px;
+       font-size:15px;font-weight:700;text-decoration:none">
+      ✗ Reject
+    </a>
+  </div>
+  <div style="padding:12px 28px;border-top:1px solid #1e3a5f;font-size:11px;color:#475569">
+    Auto-generated by LinkedIn Studio PRO. Will not publish unless you click Approve.
+  </div>
+</div>
+</body></html>"""
+
+# ── POST /email/send-topics ────────────────────────────────────────────────────
+class SendTopicsEmailIn(BaseModel):
+    topics: List[str] = []
+    to_email: Optional[str] = None
+
+@app.post("/email/send-topics")
+async def api_send_topics_email(data: SendTopicsEmailIn):
+    """
+    Send a topic-selection email via Resend.
+    If topics list is empty, AI auto-generates from brand profile.
+    """
+    profile  = get_profile()
+    topics   = data.topics
+    to_email = data.to_email or profile.get("email", "") or CONFIG["APPROVAL_EMAIL"]
+
+    if not to_email:
+        raise HTTPException(status_code=400,
+            detail="No recipient email. Add email to Brand Profile or set APPROVAL_EMAIL env var.")
+
+    # Auto-generate topics from brand profile if none provided
+    if not topics:
+        topics = generate_ai_topics(
+            company=profile.get("company", ""),
+            domain=profile.get("domain", ""),
+            product=profile.get("product", ""),
+            name=profile.get("name", ""),
+            count=5,
+        )
+    if not topics:
+        raise HTTPException(status_code=500, detail="Could not generate topics. Check GEMINI_API_KEY.")
+
+    # Create one secure token per topic
+    tokenized = []
+    for t in topics:
+        token = _ea_create_token({"type": "topic_selection", "topic": t, "to_email": to_email})
+        tokenized.append({"token": token, "topic": t})
+
+    html = _ea_topic_email_html(tokenized)
+    sent = _ea_resend("[LinkedIn Studio] Choose today's topic", html, to_email)
+
+    # Log clickable URLs for dummy/debug mode
+    if not sent:
+        for item in tokenized:
+            logger.info(f"[EmailAgent] Select URL: {CONFIG['APP_BASE_URL']}/select-topic/{item['token']}")
+
+    return {
+        "status":    "sent" if sent else "dummy_mode",
+        "recipient": to_email,
+        "count":     len(tokenized),
+        "topics":    topics,
+        "note":      "Check RESEND_API_KEY if status is dummy_mode" if not sent else "",
+    }
+
+# ── GET /select-topic/{token} — user clicks topic in email ────────────────────
+@app.get("/select-topic/{token}", response_class=HTMLResponse)
+async def select_topic_handler(token: str):
+    """
+    User clicks a topic in the topic-selection email.
+    AI generates full post + fetches an image → sends approval email.
+    """
+    data = _ea_consume_token(token, "topic_selection")
+    if not data:
+        return HTMLResponse(
+            content=_inline_page("❌", "Invalid Link",
+                "This topic link has already been used or is invalid.", "#ef4444"),
+            status_code=404)
+
+    topic_str = data["topic"] if isinstance(data["topic"], str) else data["topic"].get("topic", str(data["topic"]))
+    to_email  = data.get("to_email") or CONFIG["APPROVAL_EMAIL"]
+    profile   = get_profile()
+
+    if not profile.get("company"):
+        return HTMLResponse(content=_inline_page("⚠️", "Profile Missing",
+            "Brand profile not set. Please configure your profile first.", "#f59e0b"))
+
+    try:
+        # 1. Generate post text
+        post_text = clean_for_linkedin(
+            generate_post_text(profile, "Brand Announcement", "Executive Authority", "Professional", topic_str)
+        )
+
+        # 2. Fetch one relevant image
+        images     = fetch_images_for_post(profile, "Brand Announcement", "Professional", topic_str, count=1)
+        image_url  = images[0]["url"]   if images else None
+        thumb_url  = images[0]["thumb"] if images else None
+        photographer = images[0].get("photographer", "") if images else ""
+
+        # 3. Create approval token  (stores post + image info)
+        approval_token = _ea_create_token({
+            "type":         "post_approval",
+            "post":         post_text,
+            "topic":        topic_str,
+            "image_url":    image_url,
+            "thumb_url":    thumb_url,
+            "photographer": photographer,
+            "to_email":     to_email,
+        })
+
+        approve_url = f"{CONFIG['APP_BASE_URL']}/email-approve/{approval_token}"
+        reject_url  = f"{CONFIG['APP_BASE_URL']}/email-reject/{approval_token}"
+
+        # 4. Send approval email via Resend
+        html = _ea_approval_email_html(
+            post_text, topic_str, approve_url, reject_url,
+            image_url=thumb_url, photographer=photographer,
+        )
+        sent = _ea_resend(f"[LinkedIn Studio] Post ready: {topic_str[:50]}", html, to_email)
+
+        if not sent:
+            logger.info(f"[EmailAgent] Approve URL: {approve_url}")
+
+        return HTMLResponse(content=_inline_page(
+            "🚀", "Topic Selected!",
+            f"Draft for '{topic_str[:60]}' generated and {'sent to your inbox for approval.' if sent else 'ready (check server logs for approve link — RESEND_API_KEY not set).'}",
+            "#0ea5e9"))
+
+    except Exception as e:
+        logger.error(f"[EmailAgent] select-topic error: {e}")
+        return HTMLResponse(content=_inline_page("❌", "Error", str(e)[:120], "#ef4444"), status_code=500)
+
+# ── GET /email-approve/{token} — user clicks Approve in email ─────────────────
+@app.get("/email-approve/{token}", response_class=HTMLResponse)
+async def email_approve_handler(token: str):
+    """
+    User clicks 'Approve & Post' in the approval email.
+    Publishes the post (with image if available) to LinkedIn immediately.
+    """
+    data = _ea_consume_token(token, "post_approval")
+    if not data:
+        return HTMLResponse(
+            content=_inline_page("❌", "Invalid Link",
+                "This approval link has already been used or is invalid.", "#ef4444"),
+            status_code=404)
+
+    li_token = get_token()
+    profile  = get_profile()
+    urn      = profile.get("urn", "")
+
+    if not li_token or not urn:
+        return HTMLResponse(content=_inline_page("⚠️", "LinkedIn Not Connected",
+            "LinkedIn account is not connected. Please authenticate first.", "#f59e0b"), status_code=401)
+
+    post_text  = clean_for_linkedin(data.get("post", ""))
+    image_url  = data.get("image_url")
+    image_path = None
+
+    # Download image to temp file
+    if image_url:
+        image_path = download_temp_image(image_url)
+
+    try:
+        if image_path and os.path.exists(image_path):
+            st, resp = linkedin_post_with_image(li_token, urn, post_text, image_path)
+        else:
+            st, resp = linkedin_post_text(li_token, urn, post_text)
+
+        # Cleanup temp file
+        if image_path:
+            try: os.unlink(image_path)
+            except: pass
+
+        if st in (200, 201):
+            logger.info(f"[EmailAgent] Post published via email approval ✓")
+            return HTMLResponse(content=_inline_page(
+                "✅", "Published to LinkedIn!",
+                "Your post has been published successfully. Check your LinkedIn profile.", "#22c55e"))
+        else:
+            logger.error(f"[EmailAgent] LinkedIn error {st}: {resp}")
+            return HTMLResponse(content=_inline_page(
+                "⚠️", "Publish Failed",
+                f"LinkedIn returned error {st}. Please try posting manually.", "#f59e0b"))
+
+    except Exception as e:
+        logger.error(f"[EmailAgent] email-approve error: {e}")
+        return HTMLResponse(content=_inline_page("❌", "Error", str(e)[:120], "#ef4444"), status_code=500)
+
+# ── GET /email-reject/{token} — user clicks Reject in email ──────────────────
+@app.get("/email-reject/{token}", response_class=HTMLResponse)
+async def email_reject_handler(token: str):
+    """User clicks Reject in the approval email — consumes token without posting."""
+    data = _ea_consume_token(token, "post_approval")
+    if not data:
+        return HTMLResponse(content=_inline_page("❌", "Invalid Link",
+            "This link has already been used or is invalid.", "#ef4444"), status_code=404)
+    logger.info(f"[EmailAgent] Post rejected via email")
+    return HTMLResponse(content=_inline_page(
+        "🚫", "Post Rejected",
+        "The post has been rejected and will not be published to LinkedIn.", "#ef4444"))
 
 # ── Frontend ───────────────────────────────────────────────────────────────────
 @app.get("/", response_class=HTMLResponse)
