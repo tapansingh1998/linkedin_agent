@@ -78,7 +78,7 @@ CONFIG = {
     "APPROVAL_LEAD_HOURS":    int(os.environ.get("APPROVAL_LEAD_HOURS", 24)),
     # ── Resend (only email system) ──────────────────────────────────────────────
     "RESEND_API_KEY":         os.environ.get("RESEND_API_KEY", ""),
-    "SENDER_EMAIL":           os.environ.get("SENDER_EMAIL", "onboarding@resend.dev"),
+    "SENDER_EMAIL":           os.environ.get("SENDER_EMAIL", "brijeshrajara24@gmail.com"),
     "APPROVAL_EMAIL":         os.environ.get("APPROVAL_EMAIL", ""),
     # ── OpenRouter fallback ─────────────────────────────────────────────────────
     "OPENROUTER_API_KEY":     os.environ.get("OPENROUTER_API_KEY", ""),
@@ -519,28 +519,36 @@ def linkedin_get_userinfo(access_token: str) -> tuple:
     return info.get("sub"), info.get("name", "User"), info.get("email", "")
 
 def linkedin_post_text(access_token: str, urn: str, text: str) -> tuple:
+
     payload = {
         "author": f"urn:li:person:{urn}",
-        "lifecycleState": "PUBLISHED",
-        "specificContent": {
-            "com.linkedin.ugc.ShareContent": {
-                "shareCommentary": {"text": text},
-                "shareMediaCategory": "NONE",
-            }
+        "commentary": text,
+        "visibility": "PUBLIC",
+        "distribution": {
+            "feedDistribution": "MAIN_FEED",
+            "targetEntities": [],
+            "thirdPartyDistributionChannels": []
         },
-        "visibility": {"com.linkedin.ugc.MemberNetworkVisibility": "PUBLIC"},
+        "lifecycleState": "PUBLISHED",
+        "isReshareDisabledByAuthor": False
     }
+
     r = http_requests.post(
-        "https://api.linkedin.com/v2/ugcPosts",
+        "https://api.linkedin.com/rest/posts",
         headers={
             "Authorization": f"Bearer {access_token}",
-            "Content-Type": "application/json",
+            "LinkedIn-Version": "202405",
             "X-Restli-Protocol-Version": "2.0.0",
+            "Content-Type": "application/json"
         },
-        json=payload, timeout=20,
+        json=payload,
+        timeout=30
     )
-    return r.status_code, r.json()
 
+    try:
+        return r.status_code, r.json()
+    except:
+        return r.status_code, r.text
 def download_temp_image(url: str) -> Optional[str]:
     try:
         r = http_requests.get(url, timeout=30)
@@ -587,28 +595,35 @@ def linkedin_post_with_image(access_token: str, urn: str, text: str, image_path:
         return linkedin_post_text(access_token, urn, text)
 
     payload = {
-        "author": f"urn:li:person:{urn}",
-        "lifecycleState": "PUBLISHED",
-        "specificContent": {
-            "com.linkedin.ugc.ShareContent": {
-                "shareCommentary": {"text": text},
-                "shareMediaCategory": "IMAGE",
-                "media": [{"status": "READY", "media": asset_urn}],
-            }
-        },
-        "visibility": {"com.linkedin.ugc.MemberNetworkVisibility": "PUBLIC"},
-    }
-    r = http_requests.post(
-        "https://api.linkedin.com/v2/ugcPosts",
+    "author": f"urn:li:person:{urn}",
+    "commentary": text,
+    "visibility": "PUBLIC",
+    "distribution": {
+        "feedDistribution": "MAIN_FEED",
+        "targetEntities": [],
+        "thirdPartyDistributionChannels": []
+    },
+    "content": {
+        "media": {
+            "id": asset_urn
+        }
+    },
+    "lifecycleState": "PUBLISHED",
+    "isReshareDisabledByAuthor": False
+}    r = http_requests.post(
+        "https://api.linkedin.com/rest/posts",
         headers={
             "Authorization": f"Bearer {access_token}",
+            "LinkedIn-Version": "202405",
             "Content-Type": "application/json",
             "X-Restli-Protocol-Version": "2.0.0",
         },
         json=payload, timeout=20,
     )
     return r.status_code, r.json()
-
+@app.get("/debug/profile")
+async def debug_profile():
+    return get_profile()
 # ═══════════════════════════════════════════════════════════════════════════════
 #  GEMINI AI + OPENROUTER FALLBACK
 # ═══════════════════════════════════════════════════════════════════════════════
