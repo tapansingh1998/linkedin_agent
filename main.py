@@ -578,7 +578,7 @@ def linkedin_post_with_image(access_token: str, urn: str, text: str, image_path:
         json=reg_payload, timeout=15,
     )
     if reg_r.status_code not in (200, 201):
-        return linkedin_post_text(access_token, urn, text)
+      return reg_r.status_code, reg_r.text
 
     reg_data   = reg_r.json()
     upload_url = reg_data["value"]["uploadMechanism"][
@@ -592,7 +592,7 @@ def linkedin_post_with_image(access_token: str, urn: str, text: str, image_path:
         headers={"Authorization": f"Bearer {access_token}"}, timeout=30,
     )
     if upload_resp.status_code not in (200, 201):
-        return linkedin_post_text(access_token, urn, text)
+      return upload_resp.status_code, upload_resp.text
 
     payload = {
     "author": f"urn:li:person:{urn}",
@@ -610,7 +610,8 @@ def linkedin_post_with_image(access_token: str, urn: str, text: str, image_path:
     },
     "lifecycleState": "PUBLISHED",
     "isReshareDisabledByAuthor": False
-}    r = http_requests.post(
+    }    
+    r = http_requests.post(
         "https://api.linkedin.com/rest/posts",
         headers={
             "Authorization": f"Bearer {access_token}",
@@ -1657,7 +1658,7 @@ async def campaign_approve_handler(
                 else:
                     st, resp = linkedin_post_text(li_token, urn, clean_for_linkedin(post_text))
 
-                if st in (200, 201):
+                if 200 <= st < 300:
                     if job_id:
                         update_job_status(job_id, "posted", {"posted_at": datetime.datetime.utcnow().isoformat()})
                     msg, color = f"Variation {choice.upper()} approved and published to LinkedIn! ✓", "#22c55e"
@@ -1679,7 +1680,18 @@ async def campaign_approve_handler(
 async def list_approvals(status: Optional[str] = None):
     approvals = get_approvals(status)
     return {"approvals": approvals, "count": len(approvals)}
+@app.get("/debug/linkedin")
+async def debug_linkedin():
 
+    token = get_token()
+    profile = get_profile()
+
+    return {
+        "token_exists": bool(token),
+        "urn": profile.get("urn"),
+        "name": profile.get("name"),
+        "email": profile.get("email")
+    }
 @app.post("/approvals/action")
 async def approval_action(data: ApprovalActionIn):
     approval = get_approval_by_id(data.approval_id)
