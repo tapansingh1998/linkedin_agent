@@ -76,8 +76,8 @@ CONFIG = {
     # 4. Set RESEND_API_KEY in Render environment variables
     # 5. Set SENDER_EMAIL to a verified email, e.g. noreply@yourdomain.com
     #    (For testing without domain: use onboarding@resend.dev)
-    "RESEND_API_KEY":  os.environ.get("RESEND_API_KEY", ""),
-    "SENDER_EMAIL":    os.environ.get("SENDER_EMAIL", "brijeshrajapara24@gmail.com"),
+    "RESEND_API_KEY": "re_8WkcNH3E_2JPvza3xkmvG5sP4eBvX7Mgp",
+    "SENDER_EMAIL":    "onboarding@resend.dev",
     "APPROVAL_EMAIL":  os.environ.get("APPROVAL_EMAIL", ""),
 
     "OPENROUTER_API_KEY":  os.environ.get("OPENROUTER_API_KEY", ""),
