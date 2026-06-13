@@ -623,31 +623,39 @@ def linkedin_post_with_image(access_token: str, urn: str, text: str, image_path:
     )
     if upload_resp.status_code not in (200, 201):
         return upload_resp.status_code, upload_resp.text
-
     payload = {
-        "author":     f"urn:li:person:{urn}",
-        "commentary": text,
-        "visibility": "PUBLIC",
-        "distribution": {
-            "feedDistribution": "MAIN_FEED",
-            "targetEntities":   [],
-            "thirdPartyDistributionChannels": []
-        },
-        "content": {"media": {"id": asset_urn}},
-        "lifecycleState":          "PUBLISHED",
-        "isReshareDisabledByAuthor": False,
+    "author": f"urn:li:person:{urn}",
+    "lifecycleState": "PUBLISHED",
+    "specificContent": {
+        "com.linkedin.ugc.ShareContent": {
+            "shareCommentary": {
+                "text": text
+            },
+            "shareMediaCategory": "IMAGE",
+            "media": [
+                {
+                    "status": "READY",
+                    "media": asset_urn
+                }
+            ]
+        }
+    },
+    "visibility": {
+        "com.linkedin.ugc.MemberNetworkVisibility": "PUBLIC"
     }
+}
+
     r = http_requests.post(
-        "https://api.linkedin.com/rest/posts",
-        headers={
-            "Authorization":             f"Bearer {access_token}",
-            "LinkedIn-Version":           "202506",
-            "Content-Type":              "application/json",
-            "X-Restli-Protocol-Version": "2.0.0",
-        },
-        json=payload, timeout=20,
-    )
-    try:
+    "https://api.linkedin.com/v2/ugcPosts",
+    headers={
+        "Authorization": f"Bearer {access_token}",
+        "Content-Type": "application/json",
+        "X-Restli-Protocol-Version": "2.0.0",
+    },
+    json=payload,
+    timeout=20,
+)
+        try:
         return r.status_code, r.json()
     except Exception:
         return r.status_code, r.text
