@@ -69,7 +69,7 @@ CONFIG = {
     # SMTP_USER = your Gmail address
     # SMTP_PASS = 16-char app password (no spaces)
     "SMTP_HOST":     os.environ.get("smtp.gmail.com"),
-    "SMTP_PORT":     int(os.environ.get(465)),
+    "SMTP_PORT": int(os.environ.get("SMTP_PORT", 465)),
     "SMTP_USER":     os.environ.get("SMTP_USER"),
     "SMTP_PASSWORD": os.environ.get("SMTP_PASSWORD"),
     "SENDER_EMAIL":  os.environ.get("SENDER_EMAIL", os.environ.get("SMTP_USER", "")),
