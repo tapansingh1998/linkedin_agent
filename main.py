@@ -1,14 +1,8 @@
 """
-╔══════════════════════════════════════════════════════════════════════════════╗
-║      LinkedIn Studio PRO v4.2 — FastAPI Backend (Render-Ready)              ║
-║   Supabase · OAuth · AI Topics · AI Campaign · SMTP Approval Email          ║
-╚══════════════════════════════════════════════════════════════════════════════╝
-
-EMAIL FLOW (SMTP — works with Gmail, Outlook, any SMTP server):
-  AI Campaign creates scheduled jobs
-  → Scheduler fires 24h before each post
-  → SMTP sends approval email with post variations + images
-  → User clicks "Approve" in email → post published to LinkedIn instantly
+LinkedIn Studio PRO v4.2 — FIXED
+- Port 465: SSL (SMTP_SSL), Port 587: STARTTLS
+- Approval email sends immediately on scheduling
+- One-click approve → posts to LinkedIn instantly
 """
 
 import os, json, time, threading, random, uuid, secrets
@@ -30,17 +24,10 @@ logger = logging.getLogger("li_studio")
 
 import requests as http_requests
 
-# ── SMTP Email (standard library + email libraries) ─────────────────────────────
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-from email.mime.base import MIMEBase
-from email import encoders
-HAS_SMTP = True  # Built-in, always available
-HAS_RESEND = False  # Resend SDK not used; all email goes through SMTP
 
-
-# ── Gemini ─────────────────────────────────────────────────────────────────────
 try:
     import google.generativeai as genai
     HAS_GEMINI = True
@@ -48,7 +35,6 @@ except ImportError:
     HAS_GEMINI = False
     logger.warning("google-generativeai not installed")
 
-# ── Pillow ─────────────────────────────────────────────────────────────────────
 try:
     from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageEnhance
     HAS_PIL = True
@@ -76,19 +62,20 @@ CONFIG = {
     "SCHEDULED_IMAGES_DIR":   os.environ.get("SCHEDULED_IMAGES_DIR", "scheduled_images"),
     "PORT":                   int(os.environ.get("PORT", 8000)),
     "APP_BASE_URL":           os.environ.get("APP_BASE_URL", "http://localhost:8000"),
-    # How many hours before scheduled post to send approval email
-    # Set to 0 to send email immediately when a post is scheduled
-    "APPROVAL_LEAD_HOURS":    int(os.environ.get("APPROVAL_LEAD_HOURS", 720)),  # 30 days default
-    # ── SMTP Configuration (works with Gmail, Outlook, custom servers) ──────────
-    "SMTP_HOST":              os.environ.get("SMTP_HOST", "smtp.gmail.com"),
-    "SMTP_PORT":              int(os.environ.get("SMTP_PORT", 465)),
-    "SMTP_USER":              os.environ.get("SMTP_USER"),
-    "SMTP_PASSWORD":          os.environ.get("SMTP_PASS"),
-    "SENDER_EMAIL":           os.environ.get("SENDER_EMAIL", "brijeshrajapara24@gmail.com"),
-    "APPROVAL_EMAIL":         os.environ.get("APPROVAL_EMAIL", ""),
-    # ── OpenRouter fallback ─────────────────────────────────────────────────────
-    "OPENROUTER_API_KEY":     os.environ.get("OPENROUTER_API_KEY", ""),
-    "OPENROUTER_MODEL":       os.environ.get("OPENROUTER_MODEL", "meta-llama/llama-3.3-70b-instruct:free"),
+    "APPROVAL_LEAD_HOURS":    int(os.environ.get("APPROVAL_LEAD_HOURS", 720)),
+    # ── SMTP ──────────────────────────────────────────────────────────────────
+    # For Gmail port 465 (SSL) or 587 (STARTTLS)
+    # For Gmail: enable 2FA, create App Password at myaccount.google.com/apppasswords
+    # SMTP_USER = your Gmail address
+    # SMTP_PASS = 16-char app password (no spaces)
+    "SMTP_HOST":     os.environ.get("SMTP_HOST", "smtp.gmail.com"),
+    "SMTP_PORT":     int(os.environ.get("SMTP_PORT", 465)),
+    "SMTP_USER":     os.environ.get("SMTP_USER", ""),
+    "SMTP_PASSWORD": os.environ.get("SMTP_PASS", ""),
+    "SENDER_EMAIL":  os.environ.get("SENDER_EMAIL", os.environ.get("SMTP_USER", "")),
+    "APPROVAL_EMAIL": os.environ.get("APPROVAL_EMAIL", ""),
+    "OPENROUTER_API_KEY":  os.environ.get("OPENROUTER_API_KEY", ""),
+    "OPENROUTER_MODEL":    os.environ.get("OPENROUTER_MODEL", "meta-llama/llama-3.3-70b-instruct:free"),
 }
 
 os.makedirs(CONFIG["CACHE_DIR"], exist_ok=True)
@@ -96,6 +83,11 @@ os.makedirs(CONFIG["SCHEDULED_IMAGES_DIR"], exist_ok=True)
 
 # ── Gemini rotating keys ───────────────────────────────────────────────────────
 GEMINI_API_KEYS = [k for k in [os.getenv(f"GEMINI_API_KEY_{i}") for i in range(1, 11)] if k]
+# Also accept single key
+_single = os.getenv("GEMINI_API_KEY", "")
+if _single and _single not in GEMINI_API_KEYS:
+    GEMINI_API_KEYS.insert(0, _single)
+
 _current_key_index = 0
 _key_lock = threading.Lock()
 _key_cooldowns: Dict[int, float] = {}
@@ -113,7 +105,6 @@ if SUPABASE_URL and SUPABASE_KEY:
     except Exception as e:
         logger.warning(f"[Supabase] Failed: {e}")
 
-# ── Design constants ───────────────────────────────────────────────────────────
 TONES = [
     "Executive Authority", "Warm & Authentic", "Bold Marketing",
     "Data-Driven Analyst", "Storyteller", "Technical Expert", "Inspiring Coach",
@@ -148,13 +139,12 @@ REWRITE_STYLES = {
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════
-#  PERSISTENCE — Supabase primary, JSON fallback
+#  PERSISTENCE
 # ═══════════════════════════════════════════════════════════════════════════════
 _TOKEN_FILE           = "li_tokens.json"
 _PROFILE_FILE         = "li_profile.json"
 _JOBS_FILE            = "scheduler_jobs.json"
 _APPROVALS_FILE       = "li_approvals.json"
-_PENDING_APPROVALS_FILE = "pending_approvals.json"  # Resend one-click token store
 
 def _save_json(path, data):
     try:
@@ -184,7 +174,6 @@ def upload_image_to_supabase(local_path: str) -> Optional[str]:
         logger.error(f"[Storage] {e}")
         return None
 
-# ── Token ──────────────────────────────────────────────────────────────────────
 def save_token(token_data: dict):
     _save_json(_TOKEN_FILE, token_data)
     if supabase:
@@ -218,7 +207,6 @@ def delete_token():
         except Exception:
             pass
 
-# ── Profile ────────────────────────────────────────────────────────────────────
 def save_profile(data: dict):
     _save_json(_PROFILE_FILE, data)
     if supabase:
@@ -239,7 +227,6 @@ def get_profile() -> dict:
             pass
     return _load_json(_PROFILE_FILE) or {}
 
-# ── Jobs ───────────────────────────────────────────────────────────────────────
 def save_job(job: dict):
     jobs = _load_json(_JOBS_FILE) or []
     jobs.append(job)
@@ -296,7 +283,6 @@ def delete_job_by_id(job_id: str) -> bool:
             pass
     return len(jobs) < before
 
-# ── Approvals ──────────────────────────────────────────────────────────────────
 def save_approval(approval: dict):
     approvals = _load_json(_APPROVALS_FILE) or []
     approvals = [a for a in approvals if a.get("id") != approval.get("id")]
@@ -351,103 +337,111 @@ def update_approval(approval_id: str, data: dict):
             logger.warning(f"[Supabase] update_approval: {e}")
 
 # ═══════════════════════════════════════════════════════════════════════════════
-#  SMTP EMAIL  — Campaign approval only (SMTP works with Gmail, Outlook, etc.)
-#
-#  Flow:
-#    AI Campaign creates jobs → scheduler fires 24h before → SMTP sends
-#    approval email with 3 post variations + images → user clicks one link
-#    → post published to LinkedIn immediately.
+#  SMTP EMAIL — FIXED
+#  Supports both port 465 (SSL) and port 587 (STARTTLS)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def _smtp_send(subject: str, html: str, to_email: str) -> bool:
     """
-    Send email via SMTP (works with Gmail, Outlook, any SMTP server).
+    Send email via SMTP.
+    Port 465 → SMTP_SSL (Gmail default, most reliable)
+    Port 587 → starttls()
     
-    Configuration needed:
-      SMTP_HOST = smtp server hostname (e.g., smtp.gmail.com)
-      SMTP_PORT = 587 (TLS) or 465 (SSL)
-      SMTP_USER = email address to send from
-      SMTP_PASSWORD = password or app-specific password
-      SENDER_EMAIL = display name's email
+    Gmail setup:
+      1. Enable 2-Step Verification on your Google account
+      2. Go to myaccount.google.com/apppasswords
+      3. Create app password for "Mail"
+      4. Use that 16-char password as SMTP_PASS
     """
-    if not CONFIG["SMTP_USER"] or not CONFIG["SMTP_PASSWORD"]:
-        logger.warning(f"[SMTP] SKIP (no credentials): would send to {to_email}")
+    smtp_user = CONFIG["SMTP_USER"]
+    smtp_pass = CONFIG["SMTP_PASSWORD"]
+    smtp_host = CONFIG["SMTP_HOST"]
+    smtp_port = CONFIG["SMTP_PORT"]
+    sender    = CONFIG["SENDER_EMAIL"] or smtp_user
+
+    if not smtp_user or not smtp_pass:
+        logger.warning(f"[SMTP] No credentials set. Would send '{subject}' to {to_email}")
+        logger.warning("[SMTP] Set SMTP_USER and SMTP_PASS environment variables")
         return False
-    
+
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = subject
+    msg["From"]    = f"LinkedIn Studio PRO <{sender}>"
+    msg["To"]      = to_email
+    msg.attach(MIMEText(html, "html", "utf-8"))
+
     try:
-        # Create message
-        msg = MIMEMultipart('alternative')
-        msg['Subject'] = subject
-        msg['From'] = CONFIG["SENDER_EMAIL"]
-        msg['To'] = to_email
-        
-        # Add HTML content
-        part = MIMEText(html, 'html')
-        msg.attach(part)
-        
-        # Connect and send
-        logger.info(f"[SMTP] Connecting to {CONFIG['SMTP_HOST']}:{CONFIG['SMTP_PORT']}")
-        with smtplib.SMTP(CONFIG["SMTP_HOST"], CONFIG["SMTP_PORT"], timeout=10) as server:
-            server.starttls()  # Upgrade to TLS (works for port 587)
-            server.login(CONFIG["SMTP_USER"], CONFIG["SMTP_PASSWORD"])
-            server.send_message(msg)
-        
-        logger.info(f"[SMTP] ✅ Sent to {to_email} | Subject: {subject}")
+        if smtp_port == 465:
+            # SSL from the start (most reliable for Gmail)
+            logger.info(f"[SMTP] Connecting via SSL to {smtp_host}:{smtp_port}")
+            with smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=20) as server:
+                server.login(smtp_user, smtp_pass)
+                server.send_message(msg)
+        else:
+            # STARTTLS (port 587)
+            logger.info(f"[SMTP] Connecting via STARTTLS to {smtp_host}:{smtp_port}")
+            with smtplib.SMTP(smtp_host, smtp_port, timeout=20) as server:
+                server.ehlo()
+                server.starttls()
+                server.ehlo()
+                server.login(smtp_user, smtp_pass)
+                server.send_message(msg)
+
+        logger.info(f"[SMTP] ✅ Email sent to {to_email} | Subject: {subject}")
         return True
-        
-    except smtplib.SMTPAuthenticationError as e:
-        logger.error(f"[SMTP] ❌ AUTH FAILED: Check SMTP_USER and SMTP_PASSWORD")
-        logger.error(f"[SMTP] Error: {e}")
+
+    except smtplib.SMTPAuthenticationError:
+        logger.error("[SMTP] ❌ AUTH FAILED")
+        logger.error("[SMTP] Gmail users: use App Password (not account password)")
+        logger.error("[SMTP] Get one at: myaccount.google.com/apppasswords")
         return False
-    except smtplib.SMTPException as e:
-        logger.error(f"[SMTP] ❌ SMTP Error: {e}")
+    except smtplib.SMTPConnectError as e:
+        logger.error(f"[SMTP] ❌ Cannot connect to {smtp_host}:{smtp_port} — {e}")
         return False
     except Exception as e:
-        logger.error(f"[SMTP] ❌ Failed to send: {type(e).__name__}: {e}")
+        logger.error(f"[SMTP] ❌ {type(e).__name__}: {e}")
         return False
 
 
-def _build_campaign_approval_html(approval_id: str, job_data: dict, variations: list, image_urls: list) -> str:
-    """
-    Approval email sent by AI Campaign scheduler.
-    Shows 3 post variations + up to 3 images — user clicks one link to approve & publish.
-    """
+def _build_approval_html(approval_id: str, job_data: dict, variations: list, image_urls: list) -> str:
+    """Beautiful approval email. Each variation button = approve + post immediately."""
     base_url = CONFIG["APP_BASE_URL"]
-    topic    = escape(job_data.get("topic", "LinkedIn Post"))
+    topic    = escape(job_data.get("topic") or job_data.get("text", "LinkedIn Post")[:80])
     sched    = job_data.get("datetime", "")
 
     var_html = ""
     for i, v in enumerate(variations):
-        label = chr(65 + i)  # A, B, C
+        label       = chr(65 + i)  # A, B, C
         approve_url = f"{base_url}/campaign-approve/{approval_id}?choice={label.lower()}&variation={i}"
+        text_preview = escape((v.get("text") or "")[:600])
         var_html += f"""
 <div style="background:#0e1828;border:1px solid #1e3a5f;border-radius:10px;padding:18px;margin:12px 0">
-  <div style="color:#0ea5e9;font-weight:700;font-size:12px;margin-bottom:8px;text-transform:uppercase;letter-spacing:.05em">
-    Variation {label} — {escape(v.get('style',''))}
+  <div style="color:#0ea5e9;font-weight:700;font-size:12px;margin-bottom:10px;text-transform:uppercase">
+    {'Variation ' + label + ' — ' + escape(v.get('style', '')) if len(variations) > 1 else 'Post Preview'}
   </div>
-  <div style="color:#c8d6e5;font-size:13px;white-space:pre-wrap;line-height:1.75;max-height:220px;overflow:hidden">
-    {escape(v.get('text','')[:500])}{'…' if len(v.get('text',''))>500 else ''}
+  <div style="color:#c8d6e5;font-size:13px;white-space:pre-wrap;line-height:1.75;
+       background:#060d1a;border-radius:6px;padding:12px;border:1px solid #162030">
+{text_preview}{'…' if len(v.get('text',''))>600 else ''}
   </div>
   <a href="{approve_url}"
-     style="display:inline-block;margin-top:14px;padding:10px 24px;background:#0ea5e9;
-            color:#000;border-radius:6px;font-size:13px;font-weight:700;text-decoration:none">
-    ✓ Approve &amp; Post Variation {label}
+     style="display:inline-block;margin-top:14px;padding:12px 28px;background:#0ea5e9;
+            color:#000;border-radius:6px;font-size:14px;font-weight:700;text-decoration:none">
+    ✓ Approve &amp; Post {'Variation ' + label if len(variations) > 1 else 'to LinkedIn'}
   </a>
 </div>"""
 
     img_html = ""
     if image_urls:
-        img_html = "<h3 style='color:#f0f6fc;margin:24px 0 12px;font-size:15px'>📸 Or choose a variation with this image</h3>"
+        img_html = "<h3 style='color:#f0f6fc;margin:24px 0 12px;font-size:14px'>📸 Post with an image</h3>"
         img_html += "<div style='display:flex;gap:12px;flex-wrap:wrap'>"
         for i, img_url in enumerate(image_urls[:3]):
-            label = chr(65 + i)
             approve_img_url = f"{base_url}/campaign-approve/{approval_id}?choice=a&variation=0&image={i}"
             img_html += f"""
 <a href="{approve_img_url}" style="text-decoration:none">
   <div style="border:2px solid #1e3a5f;border-radius:8px;overflow:hidden;width:180px;cursor:pointer">
-    <img src="{img_url}" style="width:180px;height:115px;object-fit:cover;display:block" alt="Image {label}">
+    <img src="{escape(img_url)}" style="width:180px;height:115px;object-fit:cover;display:block" alt="Image {i+1}">
     <div style="padding:8px;text-align:center;color:#0ea5e9;font-size:11px;font-weight:700;background:#0a1628">
-      Use Image {label}
+      Use Image {i+1}
     </div>
   </div>
 </a>"""
@@ -457,143 +451,46 @@ def _build_campaign_approval_html(approval_id: str, job_data: dict, variations: 
     skip_url   = f"{base_url}/campaign-approve/{approval_id}?action=skip"
 
     return f"""<!DOCTYPE html><html>
-<body style="background:#03050a;color:#f0f6fc;font-family:'Segoe UI',sans-serif;padding:0;margin:0">
+<body style="background:#03050a;color:#f0f6fc;font-family:'Segoe UI',Arial,sans-serif;padding:0;margin:0">
 <div style="max-width:680px;margin:32px auto;background:#0a1628;border:1px solid #1e3a5f;border-radius:16px;overflow:hidden">
-
   <div style="background:linear-gradient(135deg,#0ea5e9,#a855f7);padding:28px 32px">
     <h1 style="margin:0;font-size:20px;color:#fff">🚀 LinkedIn Post Ready for Approval</h1>
-    <p style="margin:6px 0 0;color:rgba(255,255,255,0.8);font-size:13px">
-      Click any variation below to approve &amp; publish instantly to LinkedIn.
+    <p style="margin:6px 0 0;color:rgba(255,255,255,0.85);font-size:13px">
+      Click any button below → post goes live on LinkedIn instantly.
     </p>
   </div>
-
   <div style="padding:24px 32px">
-    <div style="background:#0e1828;border-radius:8px;padding:14px 18px;margin-bottom:20px;display:flex;gap:16px;flex-wrap:wrap">
-      <div><span style="font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:.08em">Topic</span><br>
-           <strong style="font-size:14px">{topic}</strong></div>
-      <div><span style="font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:.08em">Scheduled</span><br>
-           <strong style="font-size:14px">{sched}</strong></div>
+    <div style="background:#0e1828;border-radius:8px;padding:12px 16px;margin-bottom:20px">
+      <div style="font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:.08em">Topic / Post</div>
+      <strong style="font-size:14px">{topic}</strong>
+      {f'<br><div style="font-size:11px;color:#64748b;margin-top:4px">Scheduled: {sched}</div>' if sched else ''}
     </div>
-
-    <h3 style="color:#f0f6fc;margin:0 0 4px;font-size:15px">📝 Choose a Post Variation</h3>
-    <p style="color:#64748b;font-size:12px;margin:0 0 8px">Each variation is written in a different style. Click to approve &amp; post immediately.</p>
     {var_html}
     {img_html}
-
     <div style="margin-top:28px;display:flex;gap:10px;padding-top:20px;border-top:1px solid #1e3a5f">
       <a href="{reject_url}"
          style="padding:10px 22px;background:rgba(239,68,68,0.15);color:#ef4444;
                 border:1px solid rgba(239,68,68,0.3);border-radius:6px;font-size:12px;
                 font-weight:700;text-decoration:none">✗ Reject</a>
       <a href="{skip_url}"
-         style="padding:10px 22px;background:rgba(100,116,139,0.15);color:#64748b;
+         style="padding:10px 22px;background:rgba(100,116,139,0.15);color:#94a3b8;
                 border:1px solid rgba(100,116,139,0.3);border-radius:6px;font-size:12px;
-                font-weight:700;text-decoration:none">⏭ Skip this post</a>
+                font-weight:700;text-decoration:none">⏭ Skip</a>
     </div>
-
     <p style="color:#334155;font-size:10px;margin-top:16px">
-      Generated by LinkedIn Studio PRO · Will not publish unless you click Approve.
+      LinkedIn Studio PRO · Will not publish unless you click Approve.
     </p>
   </div>
 </div>
 </body></html>"""
 
 
-def send_campaign_approval_email(to_email: str, approval_id: str, job_data: dict, variations: list, image_urls: list) -> bool:
-    """Send the AI Campaign approval email via SMTP."""
-    topic = job_data.get("topic", "LinkedIn Post")
-    html  = _build_campaign_approval_html(approval_id, job_data, variations, image_urls)
-    return _smtp_send(
-        f"🚀 Approve LinkedIn Post — {topic[:50]}",
-        html,
-        to_email,
-    )
-
-
-def _build_manual_approval_html(approval_id: str, job_data: dict) -> str:
-    """
-    Approval email for manually scheduled posts (single text + optional image).
-    User clicks Approve → post published immediately to LinkedIn.
-    """
-    base_url   = CONFIG["APP_BASE_URL"]
-    text_preview = escape((job_data.get("text") or "")[:600])
-    sched      = job_data.get("datetime", "")
-    post_type  = escape(job_data.get("post_type") or "Scheduled Post")
-    image_url  = job_data.get("image_url") or ""
-
-    approve_url = f"{base_url}/campaign-approve/{approval_id}?choice=a&variation=0"
-    reject_url  = f"{base_url}/campaign-approve/{approval_id}?action=reject"
-
-    img_block = ""
-    if image_url:
-        img_block = f"""
-<div style="margin:18px 0 0">
-  <div style="font-size:11px;font-weight:700;text-transform:uppercase;color:#64748b;margin-bottom:6px">
-    Attached Image
-  </div>
-  <div style="border:1px solid #1e3a5f;border-radius:8px;overflow:hidden">
-    <img src="{escape(image_url)}" style="width:100%;max-height:260px;object-fit:cover;display:block">
-  </div>
-</div>"""
-
-    return f"""<!DOCTYPE html><html>
-<body style="background:#03050a;color:#f0f6fc;font-family:'Segoe UI',sans-serif;padding:0;margin:0">
-<div style="max-width:660px;margin:32px auto;background:#0a1628;border:1px solid #1e3a5f;border-radius:16px;overflow:hidden">
-
-  <div style="background:linear-gradient(135deg,#0ea5e9,#a855f7);padding:26px 32px">
-    <h1 style="margin:0;font-size:20px;color:#fff">📋 Scheduled Post Ready for Approval</h1>
-    <p style="margin:6px 0 0;color:rgba(255,255,255,0.8);font-size:13px">
-      Click Approve below to publish this post to LinkedIn instantly.
-    </p>
-  </div>
-
-  <div style="padding:24px 32px">
-    <div style="background:#0e1828;border-radius:8px;padding:12px 16px;margin-bottom:18px;display:flex;gap:20px;flex-wrap:wrap">
-      <div><span style="font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:.08em">Post Type</span><br>
-           <strong style="font-size:13px">{post_type}</strong></div>
-      <div><span style="font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:.08em">Scheduled For</span><br>
-           <strong style="font-size:13px">{sched}</strong></div>
-    </div>
-
-    <h3 style="color:#f0f6fc;margin:0 0 8px;font-size:14px">📝 Post Content</h3>
-    <div style="background:#0e1828;border:1px solid #1e3a5f;border-radius:8px;padding:16px;
-         font-size:14px;line-height:1.8;color:#e8f0fc;white-space:pre-wrap">
-{text_preview}{'…' if len(job_data.get('text',''))>600 else ''}
-    </div>
-
-    {img_block}
-
-    <div style="margin-top:24px;display:flex;gap:12px;flex-wrap:wrap">
-      <a href="{approve_url}"
-         style="display:inline-block;padding:12px 28px;background:#0ea5e9;
-                color:#000;border-radius:8px;font-size:14px;font-weight:700;text-decoration:none">
-        ✓ Approve &amp; Publish to LinkedIn
-      </a>
-      <a href="{reject_url}"
-         style="display:inline-block;padding:12px 22px;background:rgba(239,68,68,0.15);
-                color:#ef4444;border:1px solid rgba(239,68,68,0.3);border-radius:8px;
-                font-size:14px;font-weight:700;text-decoration:none">
-        ✗ Reject
-      </a>
-    </div>
-
-    <p style="color:#334155;font-size:10px;margin-top:18px">
-      Generated by LinkedIn Studio PRO · Will not publish unless you click Approve.
-    </p>
-  </div>
-</div>
-</body></html>"""
-
-
-def send_manual_approval_email(to_email: str, approval_id: str, job_data: dict) -> bool:
-    """Send approval email for a manually scheduled post via SMTP."""
-    text_snippet = (job_data.get("text") or "Scheduled Post")[:50]
-    html = _build_manual_approval_html(approval_id, job_data)
-    return _smtp_send(
-        f"📋 Approve Scheduled LinkedIn Post — {text_snippet}",
-        html,
-        to_email,
-    )
+def send_approval_email(to_email: str, approval_id: str, job_data: dict,
+                         variations: list, image_urls: list) -> bool:
+    """Send approval email for any job type (manual or campaign)."""
+    topic = job_data.get("topic") or (job_data.get("text", "")[:50]) or "LinkedIn Post"
+    html  = _build_approval_html(approval_id, job_data, variations, image_urls)
+    return _smtp_send(f"🚀 Approve LinkedIn Post — {topic[:50]}", html, to_email)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -615,9 +512,10 @@ def linkedin_exchange_code(code: str) -> str:
     resp = http_requests.post(
         "https://www.linkedin.com/oauth/v2/accessToken",
         data={
-            "grant_type": "authorization_code", "code": code,
-            "redirect_uri": CONFIG["LINKEDIN_REDIRECT_URI"],
-            "client_id": CONFIG["LINKEDIN_CLIENT_ID"],
+            "grant_type":    "authorization_code",
+            "code":          code,
+            "redirect_uri":  CONFIG["LINKEDIN_REDIRECT_URI"],
+            "client_id":     CONFIG["LINKEDIN_CLIENT_ID"],
             "client_secret": CONFIG["LINKEDIN_CLIENT_SECRET"],
         }, timeout=15,
     )
@@ -640,36 +538,33 @@ def linkedin_get_userinfo(access_token: str) -> tuple:
     return info.get("sub"), info.get("name", "User"), info.get("email", "")
 
 def linkedin_post_text(access_token: str, urn: str, text: str) -> tuple:
-
     payload = {
-        "author": f"urn:li:person:{urn}",
-        "commentary": text,
-        "visibility": "PUBLIC",
+        "author":       f"urn:li:person:{urn}",
+        "commentary":   text,
+        "visibility":   "PUBLIC",
         "distribution": {
             "feedDistribution": "MAIN_FEED",
-            "targetEntities": [],
+            "targetEntities":   [],
             "thirdPartyDistributionChannels": []
         },
-        "lifecycleState": "PUBLISHED",
-        "isReshareDisabledByAuthor": False
+        "lifecycleState":          "PUBLISHED",
+        "isReshareDisabledByAuthor": False,
     }
-
     r = http_requests.post(
         "https://api.linkedin.com/rest/posts",
         headers={
-            "Authorization": f"Bearer {access_token}",
-            "LinkedIn-Version": "202405",
+            "Authorization":             f"Bearer {access_token}",
+            "LinkedIn-Version":           "202405",
             "X-Restli-Protocol-Version": "2.0.0",
-            "Content-Type": "application/json"
+            "Content-Type":              "application/json",
         },
-        json=payload,
-        timeout=30
+        json=payload, timeout=30,
     )
-
     try:
         return r.status_code, r.json()
-    except:
+    except Exception:
         return r.status_code, r.text
+
 def download_temp_image(url: str) -> Optional[str]:
     try:
         r = http_requests.get(url, timeout=30)
@@ -686,7 +581,7 @@ def download_temp_image(url: str) -> Optional[str]:
 def linkedin_post_with_image(access_token: str, urn: str, text: str, image_path: str) -> tuple:
     reg_payload = {
         "registerUploadRequest": {
-            "owner": f"urn:li:person:{urn}",
+            "owner":   f"urn:li:person:{urn}",
             "recipes": ["urn:li:digitalmediaRecipe:feedshare-image"],
             "serviceRelationships": [
                 {"identifier": "urn:li:userGeneratedContent", "relationshipType": "OWNER"}
@@ -699,7 +594,7 @@ def linkedin_post_with_image(access_token: str, urn: str, text: str, image_path:
         json=reg_payload, timeout=15,
     )
     if reg_r.status_code not in (200, 201):
-      return reg_r.status_code, reg_r.text
+        return reg_r.status_code, reg_r.text
 
     reg_data   = reg_r.json()
     upload_url = reg_data["value"]["uploadMechanism"][
@@ -710,49 +605,64 @@ def linkedin_post_with_image(access_token: str, urn: str, text: str, image_path:
         img_bytes = f.read()
     upload_resp = http_requests.put(
         upload_url, data=img_bytes,
-        headers={"Authorization": f"Bearer {access_token}"}, timeout=30,
+        headers={"Authorization": f"Bearer {access_token}"}, timeout=60,
     )
     if upload_resp.status_code not in (200, 201):
-      return upload_resp.status_code, upload_resp.text
+        return upload_resp.status_code, upload_resp.text
 
     payload = {
-    "author": f"urn:li:person:{urn}",
-    "commentary": text,
-    "visibility": "PUBLIC",
-    "distribution": {
-        "feedDistribution": "MAIN_FEED",
-        "targetEntities": [],
-        "thirdPartyDistributionChannels": []
-    },
-    "content": {
-        "media": {
-            "id": asset_urn
-        }
-    },
-    "lifecycleState": "PUBLISHED",
-    "isReshareDisabledByAuthor": False
-    }    
+        "author":     f"urn:li:person:{urn}",
+        "commentary": text,
+        "visibility": "PUBLIC",
+        "distribution": {
+            "feedDistribution": "MAIN_FEED",
+            "targetEntities":   [],
+            "thirdPartyDistributionChannels": []
+        },
+        "content": {"media": {"id": asset_urn}},
+        "lifecycleState":          "PUBLISHED",
+        "isReshareDisabledByAuthor": False,
+    }
     r = http_requests.post(
         "https://api.linkedin.com/rest/posts",
         headers={
-            "Authorization": f"Bearer {access_token}",
-            "LinkedIn-Version": "202405",
-            "Content-Type": "application/json",
+            "Authorization":             f"Bearer {access_token}",
+            "LinkedIn-Version":           "202405",
+            "Content-Type":              "application/json",
             "X-Restli-Protocol-Version": "2.0.0",
         },
         json=payload, timeout=20,
     )
-    return r.status_code, r.json()
+    try:
+        return r.status_code, r.json()
+    except Exception:
+        return r.status_code, r.text
+
+def _publish_to_linkedin(token: str, urn: str, text: str, image_url: str = None) -> tuple:
+    """Helper: download image if URL given, then post."""
+    image_path = None
+    if image_url:
+        image_path = download_temp_image(image_url)
+    try:
+        if image_path and os.path.exists(image_path):
+            st, resp = linkedin_post_with_image(token, urn, text, image_path)
+        else:
+            st, resp = linkedin_post_text(token, urn, text)
+        return st, resp
+    finally:
+        if image_path:
+            try:
+                os.unlink(image_path)
+            except Exception:
+                pass
 
 # ═══════════════════════════════════════════════════════════════════════════════
-#  GEMINI AI + OPENROUTER FALLBACK
+#  GEMINI AI
 # ═══════════════════════════════════════════════════════════════════════════════
 GEMINI_MODELS_FALLBACK = ["gemini-2.0-flash", "gemini-2.0-flash-lite", "gemini-2.5-flash"]
 OPENROUTER_MODELS_FALLBACK = [
     "meta-llama/llama-3.3-70b-instruct:free",
     "deepseek/deepseek-chat:free",
-    "qwen/qwen2.5-72b-instruct:free",
-    "mistralai/mistral-7b-instruct:free",
 ]
 
 def get_next_gemini_model(model_name: str = None, key_idx: int = None):
@@ -762,16 +672,8 @@ def get_next_gemini_model(model_name: str = None, key_idx: int = None):
         if key_idx is not None:
             idx = key_idx % len(GEMINI_API_KEYS)
         else:
-            start = _current_key_index
-            idx = start
-            for _ in range(len(GEMINI_API_KEYS)):
-                candidate = _current_key_index
-                _current_key_index = (_current_key_index + 1) % len(GEMINI_API_KEYS)
-                if now >= _key_cooldowns.get(candidate, 0):
-                    idx = candidate
-                    break
-            else:
-                idx = start
+            idx = _current_key_index
+            _current_key_index = (_current_key_index + 1) % len(GEMINI_API_KEYS)
         api_key = GEMINI_API_KEYS[idx]
     genai.configure(api_key=api_key)
     name = model_name or CONFIG.get("GEMINI_MODEL", "gemini-2.0-flash")
@@ -787,9 +689,8 @@ def openrouter_generate(prompt: str) -> str:
                 "https://openrouter.ai/api/v1/chat/completions",
                 headers={
                     "Authorization": f"Bearer {api_key}",
-                    "Content-Type": "application/json",
-                    "HTTP-Referer": CONFIG.get("APP_BASE_URL", ""),
-                    "X-Title": "LinkedIn Studio PRO",
+                    "Content-Type":  "application/json",
+                    "X-Title":       "LinkedIn Studio PRO",
                 },
                 json={"model": model, "messages": [{"role": "user", "content": prompt}], "max_tokens": 1500},
                 timeout=30,
@@ -802,11 +703,10 @@ def openrouter_generate(prompt: str) -> str:
 
 def gemini_generate(prompt: str) -> str:
     if not GEMINI_API_KEYS:
-        return openrouter_generate(prompt) or "[AI error: No API keys]"
+        return openrouter_generate(prompt) or "[AI error: No GEMINI_API_KEY set]"
     primary = CONFIG.get("GEMINI_MODEL", "gemini-2.0-flash")
     models  = [primary] + [m for m in GEMINI_MODELS_FALLBACK if m != primary]
     for model_name in models:
-        exhausted = 0
         for attempt in range(len(GEMINI_API_KEYS)):
             try:
                 model, _, _ = get_next_gemini_model(model_name, key_idx=attempt)
@@ -815,21 +715,13 @@ def gemini_generate(prompt: str) -> str:
                 err = str(e).lower()
                 if any(x in err for x in ("429", "quota", "rate limit", "resource_exhausted")):
                     _key_cooldowns[attempt] = time.time() + _KEY_COOLDOWN_SECS
-                    exhausted += 1
                     continue
-                if "404" in err or "not found" in err:
-                    exhausted = len(GEMINI_API_KEYS)
-                    break
                 break
-        if exhausted >= len(GEMINI_API_KEYS):
-            continue
     result = openrouter_generate(prompt)
-    if result:
-        return result
-    return "[AI temporarily unavailable. Please try again.]"
+    return result if result else "[AI temporarily unavailable. Please try again.]"
 
 # ═══════════════════════════════════════════════════════════════════════════════
-#  IMAGE SEARCH — Pixabay + Pexels
+#  IMAGE SEARCH
 # ═══════════════════════════════════════════════════════════════════════════════
 def _search_stock(query: str, count: int) -> list:
     results = []
@@ -918,7 +810,7 @@ def download_image(url: str, save_path: str) -> bool:
     return False
 
 # ═══════════════════════════════════════════════════════════════════════════════
-#  IMAGE GENERATION — Poster layouts
+#  IMAGE GENERATION
 # ═══════════════════════════════════════════════════════════════════════════════
 def _load_font(size: int, bold: bool = True):
     if not HAS_PIL:
@@ -1043,8 +935,8 @@ def build_posters_for_images(images_data, headline, profile, post_type, gradient
         if not download_image(item["url"], raw_path):
             continue
         try:
-            bg_img  = Image.open(raw_path).convert("RGB")
-            poster  = LAYOUT_BUILDERS[i % len(LAYOUT_BUILDERS)](bg_img, headline, org_name, post_type, domain, accent_hex, dark_hex)
+            bg_img   = Image.open(raw_path).convert("RGB")
+            poster   = LAYOUT_BUILDERS[i % len(LAYOUT_BUILDERS)](bg_img, headline, org_name, post_type, domain, accent_hex, dark_hex)
             out_path = os.path.join(CONFIG["CACHE_DIR"], f"poster_{i}_{int(time.time())}.png")
             poster.save(out_path, "PNG")
             public_url = upload_image_to_supabase(out_path) if supabase else None
@@ -1069,12 +961,6 @@ def edit_image(image_path: str, operations: dict) -> str:
             w, h = img.size
             draw.text((w-20, h-20), str(operations["watermark"]),
                       font=_load_font(int(w*0.04)), fill=(255,255,255,100), anchor="rb")
-        if "text_overlay" in operations:
-            to = operations["text_overlay"]
-            draw = ImageDraw.Draw(img)
-            draw.text((to.get("x",50), to.get("y",50)), to.get("text",""),
-                      font=_load_font(int(to.get("size",48))),
-                      fill=tuple(_hex_to_rgb(to.get("color","#ffffff"))) + (255,))
         out_path = os.path.join(CONFIG["CACHE_DIR"], f"edited_{int(time.time())}.png")
         img.save(out_path, "PNG")
         return out_path
@@ -1139,11 +1025,13 @@ RULES:
 3. Max 200 words. Return ONLY the post text."""
     return gemini_generate(prompt)
 
-def generate_ai_topics(company: str, domain: str, product: str, name: str, count: int = 3) -> list:
+def generate_ai_topics(company: str, domain: str, product: str, name: str, count: int = 5) -> list:
+    if not (company or domain or product):
+        return []
     prompt = f"""LinkedIn content strategist for {domain} company selling {product}.
 Company: {company} | Person: {name}
 Generate {count} highly specific LinkedIn post ideas tied to {domain} and {product}.
-Return ONLY a JSON array of {count} strings. No markdown."""
+Return ONLY a JSON array of {count} strings. No markdown, no explanation."""
     raw = gemini_generate(prompt)
     try:
         topics = json.loads(re.sub(r"```json|```", "", raw).strip())
@@ -1173,92 +1061,7 @@ def generate_post_variations(profile: dict, topic: str, post_type: str, tone: st
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  BACKGROUND SCHEDULER
-#  Every 30s: check for approved jobs due → post them
-#  Every 2.5min: check for pending jobs within APPROVAL_LEAD_HOURS → send Resend email
 # ═══════════════════════════════════════════════════════════════════════════════
-def _process_approval_notifications():
-    """
-    For all pending jobs within APPROVAL_LEAD_HOURS of their schedule time:
-    - Manual posts  → send approval email with the stored text/image directly.
-    - AI Campaign posts → generate variations + images, then send approval email.
-    """
-    now     = datetime.datetime.now()
-    profile = get_profile()
-    lead_h  = CONFIG["APPROVAL_LEAD_HOURS"]
-
-    for job in get_all_jobs():
-        if job.get("status") != "pending":
-            continue
-        approval_email = job.get("approval_email") or profile.get("email", "") or CONFIG["APPROVAL_EMAIL"]
-        if not approval_email:
-            logger.warning(f"[Scheduler] Job {job.get('id')} has no approval_email — skipping")
-            continue
-        job_id = str(job.get("id", ""))
-        # Skip if we already created an approval record for this job
-        if any(str(a.get("job_id")) == job_id for a in get_approvals()):
-            continue
-        try:
-            sched_dt = datetime.datetime.strptime(job.get("datetime", "9999-12-31 23:59"), "%Y-%m-%d %H:%M")
-        except ValueError:
-            continue
-        hours_until = (sched_dt - now).total_seconds() / 3600
-        if hours_until > lead_h:
-            continue
-
-        logger.info(f"[Scheduler] Building approval for job {job_id} (mode={job.get('mode','?')})")
-        approval_id = str(uuid.uuid4())
-        mode = job.get("mode", "manual")
-
-        try:
-            if mode == "manual":
-                # ── Manual scheduled post ─────────────────────────────────────
-                save_approval({
-                    "id":            approval_id,
-                    "job_id":        job_id,
-                    "topic":         (job.get("text") or "")[:80],
-                    "status":        "awaiting_approval",
-                    "variations":    [{"style": "Manual", "text": job.get("text", "")}],
-                    "image_urls":    [job["image_url"]] if job.get("image_url") else [],
-                    "scheduled_for": job.get("datetime", ""),
-                    "created_at":    datetime.datetime.utcnow().isoformat(),
-                })
-                update_job_status(job_id, "awaiting_approval")
-                sent = send_manual_approval_email(approval_email, approval_id, job)
-                logger.info(f"[Scheduler] Manual approval email {'✅ sent' if sent else '❌ failed (check SMTP config)'} → {approval_email}")
-
-            else:
-                # ── AI Campaign post ──────────────────────────────────────────
-                topic  = job.get("topic", "LinkedIn Post")
-                pdata  = {k: job.get(k, "") for k in ["company", "domain", "product", "name", "user_type"]}
-                if not pdata["company"]:
-                    pdata.update(profile)
-
-                variations = generate_post_variations(
-                    pdata, topic,
-                    job.get("post_type", "Brand Announcement"),
-                    job.get("tone", "Executive Authority"),
-                )
-                images     = fetch_images_for_post(pdata, job.get("post_type", "Brand Announcement"), job.get("mood", "Professional"), topic, count=3)
-                image_urls = [img["thumb"] for img in images]
-
-                save_approval({
-                    "id":            approval_id,
-                    "job_id":        job_id,
-                    "topic":         topic,
-                    "status":        "awaiting_approval",
-                    "variations":    variations,
-                    "image_urls":    image_urls,
-                    "scheduled_for": job.get("datetime", ""),
-                    "created_at":    datetime.datetime.utcnow().isoformat(),
-                })
-                update_job_status(job_id, "awaiting_approval")
-                sent = send_campaign_approval_email(approval_email, approval_id, job, variations, image_urls)
-                logger.info(f"[Scheduler] Campaign approval email {'✅ sent' if sent else '❌ failed (check SMTP config)'} → {approval_email}")
-
-        except Exception as e:
-            logger.error(f"[Scheduler] Approval error for {job_id}: {e}")
-
-
 def _post_approved_jobs():
     """Post approved jobs whose scheduled time has arrived."""
     now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -1278,33 +1081,22 @@ def _post_approved_jobs():
             if not token or not urn or not text:
                 update_job_status(job_id, "failed")
                 continue
-
-            image_path = None
-            if job.get("image_url"):
-                image_path = download_temp_image(job["image_url"])
-
-            if image_path and os.path.exists(image_path):
-                st, resp = linkedin_post_with_image(token, urn, text, image_path)
-            else:
-                st, resp = linkedin_post_text(token, urn, text)
-
+            st, resp = _publish_to_linkedin(token, urn, text, job.get("image_url"))
             if st in (200, 201):
                 update_job_status(job_id, "posted", {"posted_at": datetime.datetime.utcnow().isoformat()})
                 logger.info(f"[Scheduler] Job {job_id} posted ✓")
             else:
                 update_job_status(job_id, f"failed_http_{st}")
-                logger.error(f"[Scheduler] Job {job_id} LinkedIn error {st}")
+                logger.error(f"[Scheduler] Job {job_id} LinkedIn error {st}: {resp}")
         except Exception as e:
             logger.exception(f"[Scheduler] Job {job_id}: {e}")
             update_job_status(job_id, "failed")
-
 
 def run_scheduler_daemon():
     logger.info("[Scheduler] Started")
     while True:
         try:
             _post_approved_jobs()
-            _process_approval_notifications()  # Check every loop (every 30s)
         except Exception as e:
             logger.exception(f"[Scheduler] Loop error: {e}")
         time.sleep(30)
@@ -1318,7 +1110,7 @@ async def lifespan(app: FastAPI):
     logger.info("[App] Scheduler started")
     yield
 
-app = FastAPI(title="LinkedIn Studio PRO", version="4.2.0", lifespan=lifespan)
+app = FastAPI(title="LinkedIn Studio PRO", version="4.2.1", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True,
                    allow_methods=["*"], allow_headers=["*"])
 
@@ -1342,10 +1134,7 @@ class AutoCampaignIn(BaseModel):
     start_date: str
     industry: Optional[str] = None; domain: Optional[str] = None; product: Optional[str] = None
     tone: str = "Executive Authority"; mood: str = "Professional"; gradient: str = "Navy Sapphire"
-    approval_email: Optional[str] = None   # ← email for Resend approval notifications
-
-class PostNowIn(BaseModel):
-    text: str; image_path: Optional[str] = None
+    approval_email: Optional[str] = None
 
 class ImageEditIn(BaseModel):
     image_path: str; operations: Dict[str, Any]
@@ -1359,12 +1148,6 @@ class ApprovalActionIn(BaseModel):
     custom_text: Optional[str] = None
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
-def _require_auth() -> str:
-    t = get_token()
-    if not t:
-        raise HTTPException(status_code=401, detail="Not authenticated. Connect LinkedIn first.")
-    return t
-
 def _require_profile() -> dict:
     p = get_profile()
     if not p.get("company"):
@@ -1377,11 +1160,11 @@ def _inline_page(icon: str, title: str, message: str, color: str = "#0ea5e9") ->
 <style>body{{background:#03050a;color:#e8f0fc;font-family:system-ui,sans-serif;
 display:flex;align-items:center;justify-content:center;height:100vh;margin:0}}
 .card{{text-align:center;padding:40px;background:#0e1828;border:1px solid #1b2d45;
-border-radius:16px;max-width:480px}}</style></head>
+border-radius:16px;max-width:520px;width:90%}}</style></head>
 <body><div class="card">
 <div style="font-size:56px">{icon}</div>
 <h2 style="color:{color};margin:16px 0 8px">{title}</h2>
-<p style="color:#8aa0bc">{message}</p>
+<p style="color:#8aa0bc;line-height:1.6">{message}</p>
 <p style="color:#4a6080;font-size:12px;margin-top:20px">You can close this tab.</p>
 </div></body></html>"""
 
@@ -1389,65 +1172,45 @@ border-radius:16px;max-width:480px}}</style></head>
 #  ROUTES
 # ═══════════════════════════════════════════════════════════════════════════════
 
-# ── Health ─────────────────────────────────────────────────────────────────────
 @app.get("/health")
 async def health():
+    smtp_ok = bool(CONFIG["SMTP_USER"] and CONFIG["SMTP_PASSWORD"])
     return {
-        "status": "ok", "version": "4.2.0", "scheduler": "running",
+        "status": "ok", "version": "4.2.1", "scheduler": "running",
         "gemini":         HAS_GEMINI and len(GEMINI_API_KEYS) > 0,
         "linkedin_token": bool(get_token()),
         "supabase":       bool(supabase),
         "pixabay":        bool(CONFIG["PIXABAY_API_KEY"]),
         "pexels":         bool(CONFIG["PEXELS_API_KEY"]),
-        "smtp_ready":     bool(CONFIG["SMTP_USER"] and CONFIG["SMTP_PASSWORD"]),
+        "smtp_ready":     smtp_ok,
+        "smtp_host":      CONFIG["SMTP_HOST"],
+        "smtp_port":      CONFIG["SMTP_PORT"],
+        "smtp_user":      CONFIG["SMTP_USER"] or "NOT SET",
         "pillow":         HAS_PIL,
-    }
-
-@app.get("/stats")
-async def get_stats():
-    jobs    = get_all_jobs()
-    profile = get_profile()
-    return {
-        "total_jobs":         len(jobs),
-        "pending":            sum(1 for j in jobs if j.get("status") == "pending"),
-        "posted":             sum(1 for j in jobs if j.get("status") == "posted"),
-        "failed":             sum(1 for j in jobs if "failed" in str(j.get("status",""))),
-        "approved":           sum(1 for j in jobs if j.get("status") == "approved"),
-        "scheduled":          sum(1 for j in jobs if j.get("status") in ("pending","approved","awaiting_approval")),
-        "linkedin_connected": bool(get_token()),
-        "gemini_ready":       HAS_GEMINI and len(GEMINI_API_KEYS) > 0,
-        "smtp_ready":         bool(CONFIG["SMTP_USER"] and CONFIG["SMTP_PASSWORD"]),
-        "supabase_connected": bool(supabase),
-        "profile_set":        bool(profile.get("company")),
     }
 
 @app.get("/analytics")
 async def get_analytics():
-    jobs = get_all_jobs(); now = datetime.datetime.now()
+    jobs = get_all_jobs()
+    now  = datetime.datetime.now()
     weekly: Dict[str,int] = {}
-    daily:  Dict[str,int] = {}
     cutoff = now - datetime.timedelta(days=30)
     for j in jobs:
         try:
             dt = datetime.datetime.strptime(j.get("datetime",""), "%Y-%m-%d %H:%M")
             weekly[dt.strftime("%Y-W%W")] = weekly.get(dt.strftime("%Y-W%W"), 0) + 1
-            if dt >= cutoff:
-                daily[dt.strftime("%Y-%m-%d")] = daily.get(dt.strftime("%Y-%m-%d"), 0) + 1
         except Exception:
             pass
-    total  = len(jobs)
-    posted = sum(1 for j in jobs if j.get("status") == "posted")
-    failed = sum(1 for j in jobs if "failed" in str(j.get("status","")))
+    total    = len(jobs)
+    posted   = sum(1 for j in jobs if j.get("status") == "posted")
+    failed   = sum(1 for j in jobs if "failed" in str(j.get("status","")))
     approved = sum(1 for j in jobs if j.get("status") in ("approved","posted"))
     return {
         "total_posts": total, "posted": posted, "failed": failed, "approved": approved,
         "approval_rate": round(approved/total*100 if total else 0, 1),
         "success_rate":  round(posted/(posted+failed)*100 if (posted+failed) else 0, 1),
-        "posts_per_week": weekly, "posts_per_day": daily,
+        "posts_per_week": weekly,
     }
-@app.get("/debug/profile")
-async def debug_profile():
-    return get_profile()    
 
 # ── Auth ───────────────────────────────────────────────────────────────────────
 @app.get("/auth/login")
@@ -1458,8 +1221,6 @@ async def auth_login():
 
 @app.get("/auth/url")
 async def auth_get_url():
-    if not CONFIG["LINKEDIN_CLIENT_ID"]:
-        raise HTTPException(status_code=500, detail="LINKEDIN_CLIENT_ID not configured")
     return {"url": linkedin_get_auth_url()}
 
 @app.get("/auth/callback")
@@ -1523,7 +1284,9 @@ async def read_profile():
 @app.post("/generate-topics")
 async def gen_topics():
     p = get_profile()
-    topics = generate_ai_topics(p.get("company",""), p.get("domain",""), p.get("product",""), p.get("name",""), count=3)
+    if not p.get("company") and not p.get("domain"):
+        raise HTTPException(status_code=400, detail="Set your Brand Profile first (Company + Domain required).")
+    topics = generate_ai_topics(p.get("company",""), p.get("domain",""), p.get("product",""), p.get("name",""), count=10)
     if not topics:
         raise HTTPException(status_code=500, detail="Could not generate topics. Check GEMINI_API_KEY.")
     return {"topics": topics, "count": len(topics)}
@@ -1531,8 +1294,6 @@ async def gen_topics():
 # ── Rewrite ────────────────────────────────────────────────────────────────────
 @app.post("/rewrite")
 async def rewrite(data: RewriteIn):
-    if data.style not in REWRITE_STYLES:
-        raise HTTPException(status_code=400, detail=f"Style must be one of: {list(REWRITE_STYLES.keys())}")
     return {"original": data.text, "rewritten": rewrite_post(data.text, data.style), "style": data.style}
 
 # ── Generate Post ──────────────────────────────────────────────────────────────
@@ -1572,7 +1333,7 @@ async def image_edit_endpoint(data: ImageEditIn):
         raise HTTPException(status_code=404, detail="Image not found")
     return {"edited_path": edit_image(data.image_path, data.operations)}
 
-# ── Post Now (instant, multipart) ──────────────────────────────────────────────
+# ── Post Now (instant) ─────────────────────────────────────────────────────────
 @app.post("/api/posts/instant")
 async def publish_instant_post(
     text:  str                  = Form(...),
@@ -1582,12 +1343,14 @@ async def publish_instant_post(
     token = get_token()
     if not token:
         raise HTTPException(status_code=401, detail="LinkedIn not authenticated.")
+
     image_path = None
-    if image:
+    if image and image.filename:
         suffix = Path(image.filename).suffix or ".png"
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
             tmp.write(await image.read())
             image_path = tmp.name
+
     try:
         if image_path and os.path.exists(image_path):
             st, resp = linkedin_post_with_image(token, urn, text, image_path)
@@ -1595,6 +1358,7 @@ async def publish_instant_post(
             except: pass
         else:
             st, resp = linkedin_post_text(token, urn, text)
+
         if st in (200, 201):
             return {"status": "success", "response": resp}
         raise HTTPException(status_code=st, detail=str(resp))
@@ -1602,21 +1366,6 @@ async def publish_instant_post(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
-@app.post("/post/now")
-async def post_now(data: PostNowIn):
-    token   = _require_auth()
-    profile = get_profile()
-    urn     = profile.get("urn")
-    cleaned = clean_for_linkedin(data.text)
-    image_path = data.image_path.replace("/", os.sep) if data.image_path else None
-    if image_path and os.path.exists(image_path):
-        st, resp = linkedin_post_with_image(token, urn, cleaned, image_path)
-    else:
-        st, resp = linkedin_post_text(token, urn, cleaned)
-    if st in (200, 201):
-        return {"status": "posted"}
-    raise HTTPException(status_code=st, detail=str(resp))
 
 # ── Schedule Single ────────────────────────────────────────────────────────────
 @app.post("/schedule")
@@ -1636,11 +1385,8 @@ async def schedule_job(
     except ValueError:
         raise HTTPException(status_code=400, detail="Use format: YYYY-MM-DD HH:MM")
 
-    # Determine approval email: from form → profile → CONFIG
-    final_approval_email = (approval_email or profile.get("email","") or CONFIG["APPROVAL_EMAIL"] or "").strip()
-    if not final_approval_email:
-        logger.warning(f"[Schedule] No approval email available. Resend notifications will be skipped.")
-    
+    final_email = (approval_email or profile.get("email","") or CONFIG["APPROVAL_EMAIL"] or "").strip()
+
     image_url = None
     if image and image.filename:
         suffix = Path(image.filename).suffix or ".png"
@@ -1658,57 +1404,43 @@ async def schedule_job(
         "datetime": scheduled_datetime, "status": "pending", "mode": "manual",
         "post_type": post_type or "", "urn": urn,
         "company": profile.get("company",""), "domain": profile.get("domain",""),
-        "product": profile.get("product",""),
-        "approval_email": final_approval_email,
+        "approval_email": final_email,
         "created_at": datetime.datetime.utcnow().isoformat(),
     }
-    if supabase:
-        try: supabase.table("scheduled_posts").insert(job).execute()
-        except: save_job(job)
-    else:
-        save_job(job)
-    
-    logger.info(f"[Schedule] Job {job_id} → {scheduled_datetime} | Email: {final_approval_email}")
+    save_job(job)
 
-    # ── Send approval email immediately on scheduling ─────────────────────────
+    # Send approval email immediately
     email_sent = False
-    if final_approval_email and CONFIG["SMTP_USER"] and CONFIG["SMTP_PASSWORD"]:
-        try:
-            approval_id = str(uuid.uuid4())
-            save_approval({
-                "id":            approval_id,
-                "job_id":        job_id,
-                "topic":         (text or "")[:80],
-                "status":        "awaiting_approval",
-                "variations":    [{"style": "Manual", "text": text}],
-                "image_urls":    [image_url] if image_url else [],
-                "scheduled_for": scheduled_datetime,
-                "created_at":    datetime.datetime.utcnow().isoformat(),
-            })
-            update_job_status(job_id, "awaiting_approval")
-            email_sent = send_manual_approval_email(final_approval_email, approval_id, job)
-            logger.info(f"[Schedule] Approval email {'✅ sent' if email_sent else '❌ failed'} → {final_approval_email}")
-        except Exception as e:
-            logger.error(f"[Schedule] Approval email error: {e}")
-    elif not final_approval_email:
-        logger.warning("[Schedule] No approval email — set APPROVAL_EMAIL or add email to Brand Profile")
-    elif not CONFIG["SMTP_USER"]:
-        logger.warning("[Schedule] SMTP not configured — set SMTP_USER and SMTP_PASSWORD env vars")
+    approval_id = str(uuid.uuid4())
+    if final_email:
+        variations = [{"style": "Manual", "text": text}]
+        image_urls = [image_url] if image_url else []
+        save_approval({
+            "id":            approval_id,
+            "job_id":        job_id,
+            "topic":         text[:80],
+            "status":        "awaiting_approval",
+            "variations":    variations,
+            "image_urls":    image_urls,
+            "scheduled_for": scheduled_datetime,
+            "created_at":    datetime.datetime.utcnow().isoformat(),
+        })
+        update_job_status(job_id, "awaiting_approval")
+        email_sent = send_approval_email(final_email, approval_id, job, variations, image_urls)
+        logger.info(f"[Schedule] Approval email {'✅ sent' if email_sent else '❌ failed'} → {final_email}")
+    else:
+        logger.warning("[Schedule] No approval_email — post will stay pending until manually approved")
 
     return {
-        "status": "scheduled", "job_id": job_id, "scheduled_for": scheduled_datetime,
-        "image_url": image_url, "approval_email": final_approval_email,
+        "status": "scheduled", "job_id": job_id,
+        "scheduled_for": scheduled_datetime,
+        "approval_email": final_email,
         "email_sent": email_sent,
     }
 
-# ── AI Campaign (with Resend approval emails) ──────────────────────────────────
+# ── AI Campaign ────────────────────────────────────────────────────────────────
 @app.post("/campaign/auto")
 async def auto_campaign(data: AutoCampaignIn, background_tasks: BackgroundTasks):
-    """
-    Creates scheduled AI campaign jobs.
-    Each job will receive a Resend approval email APPROVAL_LEAD_HOURS before its scheduled time.
-    User clicks a variation in the email → post published instantly to LinkedIn.
-    """
     profile = get_profile()
     urn     = profile.get("urn")
     if not urn:
@@ -1716,11 +1448,11 @@ async def auto_campaign(data: AutoCampaignIn, background_tasks: BackgroundTasks)
     if not 1 <= data.days <= 90:
         raise HTTPException(status_code=400, detail="Days must be 1–90.")
 
-    industry    = data.industry or profile.get("domain", "technology")
-    domain      = data.domain   or profile.get("domain", "SaaS")
-    product     = data.product  or profile.get("product", "software")
-    total_posts = data.days * data.posts_per_day
-    time_slots  = (data.time_slots or ["09:00", "14:00", "18:00"])[:data.posts_per_day]
+    industry       = data.industry or profile.get("domain", "technology")
+    domain         = data.domain   or profile.get("domain", "SaaS")
+    product        = data.product  or profile.get("product", "software")
+    total_posts    = data.days * data.posts_per_day
+    time_slots     = (data.time_slots or ["09:00"])[:data.posts_per_day]
     approval_email = data.approval_email or profile.get("email","") or CONFIG["APPROVAL_EMAIL"]
 
     try:
@@ -1755,27 +1487,59 @@ async def auto_campaign(data: AutoCampaignIn, background_tasks: BackgroundTasks)
                 "topic": topic, "tone": data.tone, "mood": data.mood,
                 "gradient": data.gradient, "urn": urn,
                 "company": profile.get("company",""), "domain": domain, "product": product,
-                "approval_email": approval_email,  # ← Resend sends here
+                "approval_email": approval_email,
                 "created_at": datetime.datetime.utcnow().isoformat(),
             }
-            if supabase:
-                try: supabase.table("scheduled_posts").insert(job).execute()
-                except: save_job(job)
-            else:
-                save_job(job)
+            save_job(job)
             created.append({"id": job_id, "topic": topic, "datetime": sched.strftime("%Y-%m-%d %H:%M")})
 
+    # Send approval emails for all jobs immediately in background
+    if approval_email:
+        def send_campaign_emails():
+            for job_info in created:
+                try:
+                    job_data = next(
+                        (j for j in get_all_jobs() if str(j.get("id")) == job_info["id"]),
+                        {"topic": job_info["topic"], "datetime": job_info["datetime"]}
+                    )
+                    pdata = {k: job_data.get(k, profile.get(k,""))
+                             for k in ["company","domain","product","name","user_type"]}
+                    variations = generate_post_variations(
+                        pdata, job_info["topic"],
+                        job_data.get("post_type","Brand Announcement"),
+                        job_data.get("tone","Executive Authority"),
+                    )
+                    images    = fetch_images_for_post(pdata, "Brand Announcement", "Professional", job_info["topic"], count=2)
+                    img_urls  = [img["thumb"] for img in images]
+                    appr_id   = str(uuid.uuid4())
+                    save_approval({
+                        "id":            appr_id,
+                        "job_id":        job_info["id"],
+                        "topic":         job_info["topic"],
+                        "status":        "awaiting_approval",
+                        "variations":    variations,
+                        "image_urls":    img_urls,
+                        "scheduled_for": job_info["datetime"],
+                        "created_at":    datetime.datetime.utcnow().isoformat(),
+                    })
+                    update_job_status(job_info["id"], "awaiting_approval")
+                    sent = send_approval_email(approval_email, appr_id, job_data, variations, img_urls)
+                    logger.info(f"[Campaign] Email {'✅' if sent else '❌'} for job {job_info['id']}")
+                    time.sleep(2)  # gentle rate limiting
+                except Exception as e:
+                    logger.error(f"[Campaign] Email error for {job_info['id']}: {e}")
+        background_tasks.add_task(send_campaign_emails)
+
     return {
-        "status":           "campaign_created",
-        "days":             data.days,
-        "posts_per_day":    data.posts_per_day,
-        "total_posts":      len(created),
-        "approval_email":   approval_email,
-        "resend_note":      f"Approval emails will be sent to {approval_email} via SMTP {CONFIG['APPROVAL_LEAD_HOURS']}h before each post.",
-        "jobs":             created,
+        "status":        "campaign_created",
+        "days":          data.days,
+        "posts_per_day": data.posts_per_day,
+        "total_posts":   len(created),
+        "approval_email": approval_email,
+        "jobs":          created,
     }
 
-# ── Campaign Approve (one-click from email) ────────────────────────────────────
+# ── One-click approve from email ───────────────────────────────────────────────
 @app.get("/campaign-approve/{approval_id}", response_class=HTMLResponse)
 async def campaign_approve_handler(
     approval_id: str,
@@ -1784,13 +1548,13 @@ async def campaign_approve_handler(
     variation: Optional[int] = 0,
     image:     Optional[int] = 0,
 ):
-    """
-    One-click approval handler linked from Resend campaign emails.
-    Clicking a variation in the email hits this endpoint → publishes to LinkedIn immediately.
-    """
     approval = get_approval_by_id(approval_id)
     if not approval:
-        return HTMLResponse(content=_inline_page("❌","Not Found","Approval not found.","#ef4444"), status_code=404)
+        return HTMLResponse(content=_inline_page("❌","Not Found","Approval not found or already used.","#ef4444"), status_code=404)
+
+    if approval.get("status") in ("approved","rejected","posted"):
+        return HTMLResponse(content=_inline_page("⚠️","Already Processed",
+            f"This post was already {approval.get('status')}.", "#f59e0b"))
 
     msg, color = "", "#0ea5e9"
 
@@ -1798,227 +1562,152 @@ async def campaign_approve_handler(
         update_approval(approval_id, {"status": "rejected"})
         if approval.get("job_id"):
             update_job_status(approval["job_id"], "rejected")
-        msg, color = "Post rejected.", "#ef4444"
+        return HTMLResponse(content=_inline_page("🚫","Post Rejected","The post has been rejected.","#ef4444"))
 
     elif action == "skip":
         update_approval(approval_id, {"status": "skipped"})
         if approval.get("job_id"):
             update_job_status(approval["job_id"], "skipped")
-        msg, color = "Post skipped.", "#64748b"
+        return HTMLResponse(content=_inline_page("⏭","Post Skipped","The post has been skipped.","#64748b"))
 
     elif choice:
-        vi    = ord(choice.lower()) - ord('a')
+        vi    = max(0, ord(choice.lower()) - ord('a'))
         vars_ = approval.get("variations", [])
-        text  = vars_[vi].get("text", "") if 0 <= vi < len(vars_) else ""
-        imgs  = approval.get("image_urls", [])
+        text  = vars_[vi].get("text","") if 0 <= vi < len(vars_) else ""
+        if not text and vars_:
+            text = vars_[0].get("text","")
+
+        imgs               = approval.get("image_urls", [])
         selected_image_url = imgs[image] if imgs and 0 <= image < len(imgs) else ""
 
         update_approval(approval_id, {
-            "status": "approved", "selected_variation": vi,
-            "selected_image": image, "approved_text": text,
-            "approved_at": datetime.datetime.utcnow().isoformat(),
+            "status":             "approved",
+            "selected_variation": vi,
+            "selected_image":     image,
+            "approved_text":      text,
+            "approved_at":        datetime.datetime.utcnow().isoformat(),
         })
-        if approval.get("job_id"):
-            update_job_status(approval["job_id"], "approved", {
-                "approved_text": text, "image_url": selected_image_url,
+        job_id = approval.get("job_id")
+        if job_id:
+            update_job_status(job_id, "approved", {
+                "approved_text": text,
+                "image_url":     selected_image_url,
             })
 
-        # Publish immediately
+        # ── Publish to LinkedIn immediately ────────────────────────────────────
         try:
-            job_id  = approval.get("job_id")
-            all_jobs = get_all_jobs()
-            job     = next((j for j in all_jobs if str(j.get("id")) == str(job_id)), None)
-            li_token = get_token()
-            profile  = get_profile()
-            urn      = (job.get("urn") if job else None) or profile.get("urn", "")
-            post_text = text or (job.get("text","") if job else "")
+            all_jobs  = get_all_jobs()
+            job       = next((j for j in all_jobs if str(j.get("id")) == str(job_id)), {})
+            li_token  = get_token()
+            prof      = get_profile()
+            urn       = job.get("urn") or prof.get("urn","")
+            post_text = clean_for_linkedin(text or job.get("text",""))
 
-            image_path = download_temp_image(selected_image_url) if selected_image_url else None
+            if not li_token:
+                return HTMLResponse(content=_inline_page("⚠️","Not Connected",
+                    "Approved! But LinkedIn token is missing. Please reconnect LinkedIn.","#f59e0b"))
+            if not urn:
+                return HTMLResponse(content=_inline_page("⚠️","No URN",
+                    "Approved! But LinkedIn URN is missing. Please reconnect LinkedIn.","#f59e0b"))
+            if not post_text:
+                return HTMLResponse(content=_inline_page("⚠️","No Content",
+                    "Approved! But post text is empty.","#f59e0b"))
 
-            if li_token and urn and post_text:
-                if image_path and os.path.exists(image_path):
-                    st, resp = linkedin_post_with_image(li_token, urn, clean_for_linkedin(post_text), image_path)
-                else:
-                    st, resp = linkedin_post_text(li_token, urn, clean_for_linkedin(post_text))
+            st, resp = _publish_to_linkedin(li_token, urn, post_text, selected_image_url or None)
 
-                if 200 <= st < 300:
-                    if job_id:
-                        update_job_status(job_id, "posted", {"posted_at": datetime.datetime.utcnow().isoformat()})
-                    msg, color = f"Variation {choice.upper()} approved and published to LinkedIn! ✓", "#22c55e"
-                else:
-                    if job_id:
-                        update_job_status(job_id, f"failed_http_{st}", {"linkedin_error": str(resp)})
-                    msg, color = f"Approved but LinkedIn returned error {st}. Try again manually.", "#f59e0b"
-            else:
+            if st in (200, 201):
+                update_approval(approval_id, {"status": "posted"})
                 if job_id:
-                    update_job_status(job_id, "failed_no_linkedin", {"linkedin_error": "missing token/urn"})
-                msg, color = "Approved but LinkedIn not connected (no token/urn).", "#f59e0b"
+                    update_job_status(job_id, "posted", {"posted_at": datetime.datetime.utcnow().isoformat()})
+                logger.info(f"[Approve] ✅ Posted to LinkedIn via email link — job {job_id}")
+                return HTMLResponse(content=_inline_page("✅","Published to LinkedIn!",
+                    "Your post is now live on LinkedIn. Check your profile!","#22c55e"))
+            else:
+                err_detail = str(resp)[:200]
+                if job_id:
+                    update_job_status(job_id, f"failed_http_{st}", {"linkedin_error": err_detail})
+                logger.error(f"[Approve] LinkedIn error {st}: {resp}")
+                return HTMLResponse(content=_inline_page("⚠️",f"LinkedIn Error {st}",
+                    f"Approved but LinkedIn returned: {err_detail}","#f59e0b"))
+
         except Exception as ex:
-            logger.exception(f"[CampaignApprove] {ex}")
+            logger.exception(f"[Approve] {ex}")
             if approval.get("job_id"):
                 update_job_status(approval["job_id"], "failed", {"linkedin_error": str(ex)})
-            msg, color = f"Approved but posting failed: {str(ex)[:100]}", "#f59e0b"
-    else:
-        msg, color = "No action taken.", "#64748b"
+            return HTMLResponse(content=_inline_page("❌","Error",
+                f"Approved but posting failed: {str(ex)[:150]}","#ef4444"))
 
-    icon = "✅" if "published" in msg.lower() or "approved" in msg.lower() else ("❌" if "rejected" in msg.lower() else "⏭")
-    return HTMLResponse(content=_inline_page(icon, "Campaign Approval", msg, color))
+    return HTMLResponse(content=_inline_page("⚠️","No Action","No action specified.","#64748b"))
 
-# ── Approvals (dashboard view) ─────────────────────────────────────────────────
+# ── Approvals dashboard ────────────────────────────────────────────────────────
 @app.get("/approvals")
 async def list_approvals(status: Optional[str] = None):
     approvals = get_approvals(status)
     return {"approvals": approvals, "count": len(approvals)}
-@app.get("/debug/linkedin")
-async def debug_linkedin():
-    token = get_token()
-    profile = get_profile()
-    return {
-        "token_exists": bool(token),
-        "urn": profile.get("urn"),
-        "name": profile.get("name"),
-        "email": profile.get("email")
-    }
 
-@app.get("/debug/scheduler")
-async def debug_scheduler():
-    """Show scheduler status and upcoming approvals due."""
-    now = datetime.datetime.now()
-    lead_h = CONFIG["APPROVAL_LEAD_HOURS"]
-    jobs = get_all_jobs()
-    pending_jobs = [j for j in jobs if j.get("status") == "pending"]
-    
-    due_for_approval = []
-    for j in pending_jobs:
-        try:
-            sched_dt = datetime.datetime.strptime(j.get("datetime",""), "%Y-%m-%d %H:%M")
-            hours_until = (sched_dt - now).total_seconds() / 3600
-            approval_email = j.get("approval_email") or ""
-            if hours_until <= lead_h and hours_until > 0:
-                due_for_approval.append({
-                    "job_id": j.get("id"),
-                    "scheduled": j.get("datetime"),
-                    "hours_until": round(hours_until, 1),
-                    "approval_email": approval_email,
-                    "has_email": bool(approval_email),
-                })
-        except:
-            pass
-    
-    return {
-        "current_time": now.isoformat(),
-        "approval_lead_hours": lead_h,
-        "total_jobs": len(jobs),
-        "pending_jobs": len(pending_jobs),
-        "due_for_approval": due_for_approval,
-        "smtp_configured": bool(CONFIG["SMTP_USER"] and CONFIG["SMTP_PASSWORD"]),
-        "smtp_host": CONFIG["SMTP_HOST"],
-        "smtp_port": CONFIG["SMTP_PORT"],
-        "sender_email": CONFIG["SENDER_EMAIL"],
-    }
-
-@app.post("/debug/test-email")
-async def test_email(to_email: str):
-    """Send a test email via SMTP to verify email setup."""
-    if not CONFIG["SMTP_USER"] or not CONFIG["SMTP_PASSWORD"]:
-        raise HTTPException(status_code=400, detail="SMTP not configured: Set SMTP_USER and SMTP_PASSWORD")
-    
-    html = """<!DOCTYPE html><html>
-<body style="background:#03050a;color:#e8f0fc;font-family:system-ui;padding:20px">
-<div style="max-width:600px;margin:auto;background:#0e1828;border:1px solid #1b2d45;border-radius:12px;padding:24px">
-  <h2 style="color:#0ea5e9">✅ Test Email from LinkedIn Studio PRO</h2>
-  <p>If you're reading this, SMTP email is working correctly!</p>
-  <p style="color:#8aa0bc;font-size:12px;margin-top:16px">Sent at """ + datetime.datetime.now().isoformat() + """</p>
-  <p style="color:#8aa0bc;font-size:11px">Using SMTP server: """ + CONFIG["SMTP_HOST"] + """</p>
-</div>
-</body></html>"""
-    
-    try:
-        sent = _smtp_send("Test Email — LinkedIn Studio PRO", html, to_email)
-        if sent:
-            return {"status": "sent", "to": to_email, "message": "Check your inbox!"}
-        else:
-            raise HTTPException(status_code=500, detail="SMTP send failed - check logs for details")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Send failed: {str(e)}")
-
-
-@app.get("/debug/jobs-detailed")
-async def debug_jobs_detailed():
-    """Detailed job list with approval email status."""
-    jobs = get_all_jobs()
-    return {
-        "total": len(jobs),
-        "jobs": [
-            {
-                "id": j.get("id"),
-                "datetime": j.get("datetime"),
-                "status": j.get("status"),
-                "approval_email": j.get("approval_email"),
-                "text": j.get("text", "")[:60],
-                "mode": j.get("mode"),
-            }
-            for j in jobs[-20:]  # Last 20 jobs
-        ]
-    }
 @app.post("/approvals/action")
 async def approval_action(data: ApprovalActionIn):
     approval = get_approval_by_id(data.approval_id)
     if not approval:
         raise HTTPException(status_code=404, detail="Approval not found")
     job_id = approval.get("job_id")
+
     if data.action == "approve":
         text = data.custom_text
         if not text:
             vars_ = approval.get("variations", [])
             if vars_ and data.variation_index < len(vars_):
-                text = vars_[data.variation_index].get("text", "")
+                text = vars_[data.variation_index].get("text","")
+
         update_approval(data.approval_id, {
-            "status": "approved", "selected_variation": data.variation_index,
-            "selected_image": data.image_index, "approved_text": text,
-            "approved_at": datetime.datetime.utcnow().isoformat(),
+            "status":             "approved",
+            "selected_variation": data.variation_index,
+            "approved_text":      text,
+            "approved_at":        datetime.datetime.utcnow().isoformat(),
         })
         if job_id:
             update_job_status(job_id, "approved", {"approved_text": text or ""})
+
         # Try immediate publish
         post_result = "approved"
         try:
             all_jobs = get_all_jobs()
             job = next((j for j in all_jobs if str(j.get("id")) == str(job_id)), None)
             if job and text:
-                token = get_token(); profile = get_profile()
-                urn   = job.get("urn") or profile.get("urn","")
+                token   = get_token()
+                profile = get_profile()
+                urn     = job.get("urn") or profile.get("urn","")
                 if token and urn:
-                    imgs = approval.get("image_urls", [])
+                    imgs    = approval.get("image_urls", [])
                     img_url = imgs[data.image_index] if imgs and data.image_index < len(imgs) else None
-                    image_path = download_temp_image(img_url) if img_url else None
-                    if image_path and os.path.exists(image_path):
-                        st, resp = linkedin_post_with_image(token, urn, text, image_path)
-                    else:
-                        st, resp = linkedin_post_text(token, urn, text)
+                    st, resp = _publish_to_linkedin(token, urn, clean_for_linkedin(text), img_url)
                     if st in (200, 201):
                         update_job_status(job_id, "posted", {"posted_at": datetime.datetime.utcnow().isoformat()})
+                        update_approval(data.approval_id, {"status": "posted"})
                         post_result = "approved_and_posted"
                     else:
                         update_job_status(job_id, f"failed_http_{st}", {"linkedin_error": str(resp)})
                         post_result = f"approved_linkedin_error_{st}"
                 else:
-                    update_job_status(job_id, "failed_no_linkedin", {"linkedin_error": "missing token/urn"})
+                    update_job_status(job_id, "failed_no_linkedin")
                     post_result = "approved_no_linkedin"
         except Exception as err:
             logger.error(f"[ApprovalAction] {err}")
             if job_id:
-                update_job_status(job_id, "failed", {"linkedin_error": str(err)})
+                update_job_status(job_id, "failed")
             post_result = "approved_failed"
         return {"status": post_result, "approval_id": data.approval_id}
+
     elif data.action == "reject":
         update_approval(data.approval_id, {"status": "rejected"})
         if job_id: update_job_status(job_id, "rejected")
         return {"status": "rejected"}
+
     elif data.action == "skip":
         update_approval(data.approval_id, {"status": "skipped"})
         if job_id: update_job_status(job_id, "skipped")
         return {"status": "skipped"}
+
     raise HTTPException(status_code=400, detail="action must be: approve, reject, or skip")
 
 # ── Jobs ───────────────────────────────────────────────────────────────────────
@@ -2028,7 +1717,7 @@ async def list_jobs(status: Optional[str] = None):
     return {
         "stats": {
             "total":    len(jobs),
-            "pending":  sum(1 for j in jobs if j.get("status") == "pending"),
+            "pending":  sum(1 for j in jobs if j.get("status") in ("pending","awaiting_approval")),
             "posted":   sum(1 for j in jobs if j.get("status") == "posted"),
             "failed":   sum(1 for j in jobs if "failed" in str(j.get("status",""))),
             "approved": sum(1 for j in jobs if j.get("status") == "approved"),
@@ -2040,7 +1729,7 @@ async def list_jobs(status: Optional[str] = None):
 async def delete_job(job_id: str):
     if not delete_job_by_id(job_id):
         raise HTTPException(status_code=404, detail="Job not found")
-    return {"status": "deleted", "job_id": job_id}
+    return {"status": "deleted"}
 
 @app.delete("/jobs")
 async def clear_all_jobs():
@@ -2050,343 +1739,86 @@ async def clear_all_jobs():
     _save_json(_JOBS_FILE, [])
     return {"status": "all_jobs_cleared"}
 
-# ── Serve cache ────────────────────────────────────────────────────────────────
 @app.get("/li_cache/{filename}")
 async def serve_cache(filename: str):
     path = os.path.join(CONFIG["CACHE_DIR"], filename)
     if not os.path.exists(path):
-        raise HTTPException(status_code=404, detail="File not found")
+        raise HTTPException(status_code=404)
     return FileResponse(path)
 
-# ═══════════════════════════════════════════════════════════════════════════════
-#  EMAIL AGENT ROUTES  (Resend only — no SMTP)
-#
-#  Full flow:
-#    POST /email/send-topics
-#      → Resend sends topic-selection email to user
-#      → User clicks a topic  →  GET /select-topic/{token}
-#      → AI drafts post + fetches image
-#      → Resend sends approval email  →  GET /email-approve/{token}
-#      → Post published to LinkedIn (text or text+image)
-#
-#  Token store: pending_approvals.json  (file-based, single-user)
-# ═══════════════════════════════════════════════════════════════════════════════
+# ── Debug ──────────────────────────────────────────────────────────────────────
+@app.get("/debug/profile")
+async def debug_profile():
+    return get_profile()
 
-_EA_STORE_FILE = "pending_approvals.json"
-
-def _ea_load() -> dict:
-    if os.path.exists(_EA_STORE_FILE):
-        try:
-            with open(_EA_STORE_FILE) as f:
-                return json.load(f)
-        except Exception:
-            pass
-    return {}
-
-def _ea_save(store: dict):
-    with open(_EA_STORE_FILE, "w") as f:
-        json.dump(store, f, indent=2)
-
-def _ea_create_token(data: dict) -> str:
-    token = secrets.token_urlsafe(32)
-    store = _ea_load()
-    store[token] = data
-    _ea_save(store)
-    return token
-
-def _ea_consume_token(token: str, expected_type: str) -> Optional[dict]:
-    store = _ea_load()
-    data  = store.pop(token, None)
-    if not data or data.get("type") != expected_type:
-        if data:
-            store[token] = data   # put back if wrong type
-        _ea_save(store)
-        return None
-    data.pop("type", None)
-    _ea_save(store)
-    return data
-
-def _ea_resend(subject: str, html: str, to_email: str) -> bool:
-    """Send via SMTP (replaces old Resend SDK calls — all email is SMTP now)."""
-    return _smtp_send(subject, html, to_email)
-
-def _ea_topic_email_html(tokenized_topics: list) -> str:
-    base_url = CONFIG["APP_BASE_URL"]
-    cards = ""
-    for i, item in enumerate(tokenized_topics, 1):
-        topic     = item["topic"]
-        label     = topic if isinstance(topic, str) else topic.get("topic", str(topic))
-        angle     = "" if isinstance(topic, str) else topic.get("angle", "")
-        sel_url   = f"{base_url}/select-topic/{item['token']}"
-        cards += f"""
-<div style="border:1px solid #1e3a5f;border-radius:10px;padding:16px;margin-bottom:14px;background:#0a1628">
-  <div style="color:#0ea5e9;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em">Topic {i}</div>
-  <div style="font-size:15px;font-weight:600;margin:8px 0 4px;color:#f0f6fc">{escape(label)}</div>
-  {"<div style='font-size:13px;color:#94a3b8;margin-bottom:10px'>" + escape(angle) + "</div>" if angle else ""}
-  <a href="{sel_url}" style="display:inline-block;background:#0ea5e9;color:#000;border-radius:6px;
-     padding:9px 18px;font-size:13px;font-weight:700;text-decoration:none;margin-top:6px">
-    Select this topic →
-  </a>
-</div>"""
-    return f"""<!DOCTYPE html><html>
-<body style="font-family:'Segoe UI',sans-serif;background:#03050a;padding:24px;margin:0">
-<div style="background:#0a1628;border-radius:14px;max-width:600px;margin:0 auto;
-     border:1px solid #1b2d45;overflow:hidden">
-  <div style="background:linear-gradient(135deg,#0ea5e9,#a855f7);padding:22px 28px">
-    <h1 style="color:#fff;margin:0;font-size:20px">🎯 Choose Today's LinkedIn Topic</h1>
-    <p style="color:rgba(255,255,255,.8);margin:6px 0 0;font-size:13px">
-      Pick one — AI will draft the full post + find an image. You approve before it goes live.
-    </p>
-  </div>
-  <div style="padding:22px 28px">{cards}</div>
-  <div style="padding:12px 28px;border-top:1px solid #1e3a5f;font-size:11px;color:#475569">
-    Nothing publishes until you click Approve in the next email.
-  </div>
-</div>
-</body></html>"""
-
-def _ea_approval_email_html(post_text: str, topic: str, approve_url: str, reject_url: str,
-                             image_url: str = None, photographer: str = None) -> str:
-    escaped_post  = escape(post_text).replace("\n", "<br>")
-    escaped_topic = escape(topic[:80])
-    img_block = ""
-    if image_url:
-        img_block = f"""
-<div style="margin:18px 0 0">
-  <div style="font-size:11px;font-weight:700;text-transform:uppercase;color:#64748b;margin-bottom:6px">
-    Auto-selected image
-  </div>
-  <div style="border:1px solid #1e3a5f;border-radius:8px;overflow:hidden">
-    <img src="{escape(image_url)}" style="width:100%;max-height:280px;object-fit:cover;display:block">
-    {"<div style='padding:8px 12px;background:#0e1828;font-size:11px;color:#64748b'>📷 " + escape(photographer or "Stock Photo") + "</div>" if photographer else ""}
-  </div>
-</div>"""
-    return f"""<!DOCTYPE html><html>
-<body style="font-family:'Segoe UI',sans-serif;background:#03050a;padding:24px;margin:0">
-<div style="background:#0a1628;border-radius:14px;max-width:600px;margin:0 auto;
-     border:1px solid #1b2d45;overflow:hidden">
-  <div style="background:linear-gradient(135deg,#0ea5e9,#a855f7);padding:22px 28px">
-    <h1 style="color:#fff;margin:0;font-size:20px">🚀 LinkedIn Post Ready for Approval</h1>
-    <p style="color:rgba(255,255,255,.8);margin:6px 0 0;font-size:13px">
-      Click Approve to publish instantly to LinkedIn.
-    </p>
-  </div>
-  <div style="padding:22px 28px">
-    <div style="display:inline-block;background:#0ea5e9;color:#000;border-radius:6px;
-         padding:4px 12px;font-size:13px;font-weight:700;margin-bottom:16px">
-      {escaped_topic}
-    </div>
-    <div style="background:#0e1828;border:1px solid #1e3a5f;border-radius:8px;padding:16px;
-         font-size:14px;line-height:1.8;color:#e8f0fc">
-      {escaped_post}
-    </div>
-    {img_block}
-  </div>
-  <div style="padding:0 28px 24px;display:flex;gap:12px">
-    <a href="{approve_url}" style="display:inline-block;background:#0ea5e9;color:#000;
-       border-radius:8px;padding:13px 30px;font-size:15px;font-weight:700;text-decoration:none">
-      ✓ Approve &amp; Post to LinkedIn
-    </a>
-    <a href="{reject_url}" style="display:inline-block;background:rgba(239,68,68,.15);color:#ef4444;
-       border:1px solid rgba(239,68,68,.3);border-radius:8px;padding:13px 22px;
-       font-size:15px;font-weight:700;text-decoration:none">
-      ✗ Reject
-    </a>
-  </div>
-  <div style="padding:12px 28px;border-top:1px solid #1e3a5f;font-size:11px;color:#475569">
-    Auto-generated by LinkedIn Studio PRO. Will not publish unless you click Approve.
-  </div>
-</div>
-</body></html>"""
-
-# ── POST /email/send-topics ────────────────────────────────────────────────────
-class SendTopicsEmailIn(BaseModel):
-    topics: List[str] = []
-    to_email: Optional[str] = None
-
-@app.post("/email/send-topics")
-async def api_send_topics_email(data: SendTopicsEmailIn):
-    """
-    Send a topic-selection email via Resend.
-    If topics list is empty, AI auto-generates from brand profile.
-    """
-    profile  = get_profile()
-    topics   = data.topics
-    to_email = data.to_email or profile.get("email", "") or CONFIG["APPROVAL_EMAIL"]
-
-    if not to_email:
-        raise HTTPException(status_code=400,
-            detail="No recipient email. Add email to Brand Profile or set APPROVAL_EMAIL env var.")
-
-    # Auto-generate topics from brand profile if none provided
-    if not topics:
-        topics = generate_ai_topics(
-            company=profile.get("company", ""),
-            domain=profile.get("domain", ""),
-            product=profile.get("product", ""),
-            name=profile.get("name", ""),
-            count=5,
-        )
-    if not topics:
-        raise HTTPException(status_code=500, detail="Could not generate topics. Check GEMINI_API_KEY.")
-
-    # Create one secure token per topic
-    tokenized = []
-    for t in topics:
-        token = _ea_create_token({"type": "topic_selection", "topic": t, "to_email": to_email})
-        tokenized.append({"token": token, "topic": t})
-
-    html = _ea_topic_email_html(tokenized)
-    sent = _ea_resend("[LinkedIn Studio] Choose today's topic", html, to_email)
-
-    # Log clickable URLs for dummy/debug mode
-    if not sent:
-        for item in tokenized:
-            logger.info(f"[EmailAgent] Select URL: {CONFIG['APP_BASE_URL']}/select-topic/{item['token']}")
-
+@app.get("/debug/linkedin")
+async def debug_linkedin():
+    token = get_token()
+    profile = get_profile()
     return {
-        "status":    "sent" if sent else "dummy_mode",
-        "recipient": to_email,
-        "count":     len(tokenized),
-        "topics":    topics,
-        "note":      "Check SMTP_USER/SMTP_PASSWORD env vars if email was not received." if not sent else "",
+        "token_exists": bool(token),
+        "urn":   profile.get("urn"),
+        "name":  profile.get("name"),
+        "email": profile.get("email"),
     }
 
-# ── GET /select-topic/{token} — user clicks topic in email ────────────────────
-@app.get("/select-topic/{token}", response_class=HTMLResponse)
-async def select_topic_handler(token: str):
-    """
-    User clicks a topic in the topic-selection email.
-    AI generates full post + fetches an image → sends approval email.
-    """
-    data = _ea_consume_token(token, "topic_selection")
-    if not data:
-        return HTMLResponse(
-            content=_inline_page("❌", "Invalid Link",
-                "This topic link has already been used or is invalid.", "#ef4444"),
-            status_code=404)
+@app.get("/debug/scheduler")
+async def debug_scheduler():
+    now    = datetime.datetime.now()
+    jobs   = get_all_jobs()
+    return {
+        "current_time":   now.isoformat(),
+        "total_jobs":     len(jobs),
+        "pending_jobs":   sum(1 for j in jobs if j.get("status") in ("pending","awaiting_approval")),
+        "approved_jobs":  sum(1 for j in jobs if j.get("status") == "approved"),
+        "smtp_configured": bool(CONFIG["SMTP_USER"] and CONFIG["SMTP_PASSWORD"]),
+        "smtp_host":      CONFIG["SMTP_HOST"],
+        "smtp_port":      CONFIG["SMTP_PORT"],
+        "sender_email":   CONFIG["SENDER_EMAIL"],
+    }
 
-    topic_str = data["topic"] if isinstance(data["topic"], str) else data["topic"].get("topic", str(data["topic"]))
-    to_email  = data.get("to_email") or CONFIG["APPROVAL_EMAIL"]
-    profile   = get_profile()
+@app.post("/debug/test-email")
+async def test_email(to_email: str):
+    if not CONFIG["SMTP_USER"] or not CONFIG["SMTP_PASSWORD"]:
+        raise HTTPException(status_code=400,
+            detail="SMTP not configured. Set SMTP_USER and SMTP_PASS environment variables.")
+    html = f"""<!DOCTYPE html><html>
+<body style="background:#03050a;color:#e8f0fc;font-family:system-ui;padding:20px">
+<div style="max-width:600px;margin:auto;background:#0e1828;border:1px solid #1b2d45;
+     border-radius:12px;padding:24px;text-align:center">
+  <div style="font-size:48px">✅</div>
+  <h2 style="color:#0ea5e9">SMTP Email is Working!</h2>
+  <p>LinkedIn Studio PRO can send emails successfully.</p>
+  <p style="color:#8aa0bc;font-size:12px;margin-top:16px">
+    Sent at {datetime.datetime.now().isoformat()}<br>
+    SMTP: {CONFIG['SMTP_HOST']}:{CONFIG['SMTP_PORT']}<br>
+    From: {CONFIG['SENDER_EMAIL']}
+  </p>
+</div>
+</body></html>"""
+    sent = _smtp_send("✅ Test Email — LinkedIn Studio PRO", html, to_email)
+    if sent:
+        return {"status": "sent", "to": to_email}
+    raise HTTPException(status_code=500,
+        detail="SMTP send failed. Check logs for details. Gmail users need an App Password.")
 
-    if not profile.get("company"):
-        return HTMLResponse(content=_inline_page("⚠️", "Profile Missing",
-            "Brand profile not set. Please configure your profile first.", "#f59e0b"))
-
-    try:
-        # 1. Generate post text
-        post_text = clean_for_linkedin(
-            generate_post_text(profile, "Brand Announcement", "Executive Authority", "Professional", topic_str)
-        )
-
-        # 2. Fetch one relevant image
-        images     = fetch_images_for_post(profile, "Brand Announcement", "Professional", topic_str, count=1)
-        image_url  = images[0]["url"]   if images else None
-        thumb_url  = images[0]["thumb"] if images else None
-        photographer = images[0].get("photographer", "") if images else ""
-
-        # 3. Create approval token  (stores post + image info)
-        approval_token = _ea_create_token({
-            "type":         "post_approval",
-            "post":         post_text,
-            "topic":        topic_str,
-            "image_url":    image_url,
-            "thumb_url":    thumb_url,
-            "photographer": photographer,
-            "to_email":     to_email,
-        })
-
-        approve_url = f"{CONFIG['APP_BASE_URL']}/email-approve/{approval_token}"
-        reject_url  = f"{CONFIG['APP_BASE_URL']}/email-reject/{approval_token}"
-
-        # 4. Send approval email via Resend
-        html = _ea_approval_email_html(
-            post_text, topic_str, approve_url, reject_url,
-            image_url=thumb_url, photographer=photographer,
-        )
-        sent = _ea_resend(f"[LinkedIn Studio] Post ready: {topic_str[:50]}", html, to_email)
-
-        if not sent:
-            logger.info(f"[EmailAgent] Approve URL: {approve_url}")
-
-        return HTMLResponse(content=_inline_page(
-            "🚀", "Topic Selected!",
-            f"Draft for '{topic_str[:60]}' generated and {'sent to your inbox for approval.' if sent else 'ready (check SMTP_USER/SMTP_PASSWORD env vars if email not received).'}",
-            "#0ea5e9"))
-
-    except Exception as e:
-        logger.error(f"[EmailAgent] select-topic error: {e}")
-        return HTMLResponse(content=_inline_page("❌", "Error", str(e)[:120], "#ef4444"), status_code=500)
-
-# ── GET /email-approve/{token} — user clicks Approve in email ─────────────────
-@app.get("/email-approve/{token}", response_class=HTMLResponse)
-async def email_approve_handler(token: str):
-    """
-    User clicks 'Approve & Post' in the approval email.
-    Publishes the post (with image if available) to LinkedIn immediately.
-    """
-    data = _ea_consume_token(token, "post_approval")
-    if not data:
-        return HTMLResponse(
-            content=_inline_page("❌", "Invalid Link",
-                "This approval link has already been used or is invalid.", "#ef4444"),
-            status_code=404)
-
-    li_token = get_token()
-    profile  = get_profile()
-    urn      = profile.get("urn", "")
-
-    if not li_token or not urn:
-        return HTMLResponse(content=_inline_page("⚠️", "LinkedIn Not Connected",
-            "LinkedIn account is not connected. Please authenticate first.", "#f59e0b"), status_code=401)
-
-    post_text  = clean_for_linkedin(data.get("post", ""))
-    image_url  = data.get("image_url")
-    image_path = None
-
-    # Download image to temp file
-    if image_url:
-        image_path = download_temp_image(image_url)
-
-    try:
-        if image_path and os.path.exists(image_path):
-            st, resp = linkedin_post_with_image(li_token, urn, post_text, image_path)
-        else:
-            st, resp = linkedin_post_text(li_token, urn, post_text)
-
-        # Cleanup temp file
-        if image_path:
-            try: os.unlink(image_path)
-            except: pass
-
-        if st in (200, 201):
-            logger.info(f"[EmailAgent] Post published via email approval ✓")
-            return HTMLResponse(content=_inline_page(
-                "✅", "Published to LinkedIn!",
-                "Your post has been published successfully. Check your LinkedIn profile.", "#22c55e"))
-        else:
-            logger.error(f"[EmailAgent] LinkedIn error {st}: {resp}")
-            return HTMLResponse(content=_inline_page(
-                "⚠️", "Publish Failed",
-                f"LinkedIn returned error {st}. Please try posting manually.", "#f59e0b"))
-
-    except Exception as e:
-        logger.error(f"[EmailAgent] email-approve error: {e}")
-        return HTMLResponse(content=_inline_page("❌", "Error", str(e)[:120], "#ef4444"), status_code=500)
-
-# ── GET /email-reject/{token} — user clicks Reject in email ──────────────────
-@app.get("/email-reject/{token}", response_class=HTMLResponse)
-async def email_reject_handler(token: str):
-    """User clicks Reject in the approval email — consumes token without posting."""
-    data = _ea_consume_token(token, "post_approval")
-    if not data:
-        return HTMLResponse(content=_inline_page("❌", "Invalid Link",
-            "This link has already been used or is invalid.", "#ef4444"), status_code=404)
-    logger.info(f"[EmailAgent] Post rejected via email")
-    return HTMLResponse(content=_inline_page(
-        "🚫", "Post Rejected",
-        "The post has been rejected and will not be published to LinkedIn.", "#ef4444"))
+@app.get("/debug/jobs-detailed")
+async def debug_jobs_detailed():
+    jobs = get_all_jobs()
+    return {
+        "total": len(jobs),
+        "jobs": [
+            {
+                "id":             j.get("id"),
+                "datetime":       j.get("datetime"),
+                "status":         j.get("status"),
+                "approval_email": j.get("approval_email"),
+                "text":           j.get("text","")[:60],
+                "mode":           j.get("mode"),
+            }
+            for j in jobs[-20:]
+        ]
+    }
 
 # ── Frontend ───────────────────────────────────────────────────────────────────
 @app.get("/", response_class=HTMLResponse)
@@ -2396,10 +1828,9 @@ async def home():
             with open(f, encoding="utf-8") as fh:
                 return HTMLResponse(content=fh.read())
     return HTMLResponse(content="""<!DOCTYPE html><html>
-<head><title>LinkedIn Studio PRO v4.2</title></head>
 <body style="background:#03050a;color:#e8f0fc;font-family:system-ui;padding:40px;text-align:center">
-<h1 style="color:#0ea5e9">LinkedIn Studio PRO v4.2</h1>
-<p>Place <code>index.html</code> in the same folder as <code>main.py</code>.</p>
+<h1 style="color:#0ea5e9">LinkedIn Studio PRO v4.2.1</h1>
+<p>Place <code>index.html</code> next to <code>main.py</code>.</p>
 <p><a href="/docs" style="color:#0ea5e9">→ API Docs</a></p>
 </body></html>""")
 
