@@ -150,7 +150,48 @@ _TOKEN_FILE    = "li_tokens.json"
 _PROFILE_FILE  = "li_profile.json"
 _JOBS_FILE     = "scheduler_jobs.json"
 _APPROVALS_FILE = "li_approvals.json"
+import re
 
+def bold_unicode(text: str) -> str:
+    normal = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+    bold = "𝗔𝗕𝗖𝗗𝗘𝗙𝗚𝗛𝗜𝗝𝗞𝗟𝗠𝗡𝗢𝗣𝗤𝗥𝗦𝗧𝗨𝗩𝗪𝗫𝗬𝗭𝗮𝗯𝗰𝗱𝗲𝗳𝗴𝗵𝗶𝗷𝗸𝗹𝗺𝗻𝗼𝗽𝗾𝗿𝘀𝘁𝘂𝘃𝘄𝘅𝘆𝘇𝟬𝟭𝟮𝟯𝟰𝟱𝟲𝟳𝟴𝟵"
+    return text.translate(str.maketrans(normal, bold))
+
+
+def enhance_linkedin_post(post_text: str, topic: str = "") -> str:
+    # Important words to highlight
+    keywords = [
+        "AI", "Artificial Intelligence", "Machine Learning",
+        "Productivity", "Automation", "Innovation",
+        "Growth", "Success", "Revenue", "Sales",
+        "Customer Experience", "Mobile App",
+        "Data", "Analytics", "Research",
+        "Efficiency", "Digital Transformation",
+        "Personalization", "Future", "Technology"
+    ]
+
+    # Add topic words dynamically
+    topic_words = re.findall(r'\b[A-Za-z]{4,}\b', topic)
+    keywords.extend(topic_words[:10])
+
+    # Remove duplicates
+    keywords = list(dict.fromkeys(keywords))
+
+    # Bold important keywords
+    for word in sorted(keywords, key=len, reverse=True):
+        pattern = re.compile(re.escape(word), re.IGNORECASE)
+
+        def repl(match):
+            return bold_unicode(match.group(0))
+
+        post_text = pattern.sub(repl, post_text)
+
+    # Bold first hook line
+    lines = post_text.split("\n")
+    if lines and len(lines[0].strip()) > 5:
+        lines[0] = "🚀 " + bold_unicode(lines[0])
+
+    return "\n".join(lines)
 def _save_json(path, data):
     try:
         with open(path, "w") as f:
@@ -1312,6 +1353,7 @@ async def generate(data: GeneratePostIn):
     headline = data.headline or data.topic[:50]
     raw_text = generate_post_text(profile, data.post_type, data.tone, data.mood, data.topic)
     cleaned  = clean_for_linkedin(raw_text)
+    cleaned = enhance_linkedin_post(cleaned, data.topic)
     images, posters = [], []
     if data.image_count > 0:
         images  = fetch_images_for_post(profile, data.post_type, data.mood, data.topic, count=data.image_count)
