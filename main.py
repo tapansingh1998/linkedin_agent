@@ -1664,11 +1664,17 @@ async def campaign_approve_handler(
                         update_job_status(job_id, "posted", {"posted_at": datetime.datetime.utcnow().isoformat()})
                     msg, color = f"Variation {choice.upper()} approved and published to LinkedIn! ✓", "#22c55e"
                 else:
+                    if job_id:
+                        update_job_status(job_id, f"failed_http_{st}", {"linkedin_error": str(resp)})
                     msg, color = f"Approved but LinkedIn returned error {st}. Try again manually.", "#f59e0b"
             else:
+                if job_id:
+                    update_job_status(job_id, "failed_no_linkedin", {"linkedin_error": "missing token/urn"})
                 msg, color = "Approved but LinkedIn not connected (no token/urn).", "#f59e0b"
         except Exception as ex:
             logger.exception(f"[CampaignApprove] {ex}")
+            if approval.get("job_id"):
+                update_job_status(approval["job_id"], "failed", {"linkedin_error": str(ex)})
             msg, color = f"Approved but posting failed: {str(ex)[:100]}", "#f59e0b"
     else:
         msg, color = "No action taken.", "#64748b"
@@ -1732,9 +1738,16 @@ async def approval_action(data: ApprovalActionIn):
                         update_job_status(job_id, "posted", {"posted_at": datetime.datetime.utcnow().isoformat()})
                         post_result = "approved_and_posted"
                     else:
+                        update_job_status(job_id, f"failed_http_{st}", {"linkedin_error": str(resp)})
                         post_result = f"approved_linkedin_error_{st}"
+                else:
+                    update_job_status(job_id, "failed_no_linkedin", {"linkedin_error": "missing token/urn"})
+                    post_result = "approved_no_linkedin"
         except Exception as err:
             logger.error(f"[ApprovalAction] {err}")
+            if job_id:
+                update_job_status(job_id, "failed", {"linkedin_error": str(err)})
+            post_result = "approved_failed"
         return {"status": post_result, "approval_id": data.approval_id}
     elif data.action == "reject":
         update_approval(data.approval_id, {"status": "rejected"})
