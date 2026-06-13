@@ -654,7 +654,7 @@ def linkedin_post_with_image(access_token: str, urn: str, text: str, image_path:
     json=payload,
     timeout=20,
 )
-        try:
+    try:
         return r.status_code, r.json()
     except Exception:
         return r.status_code, r.text
