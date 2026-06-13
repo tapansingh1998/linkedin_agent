@@ -1330,6 +1330,12 @@ hr { border: none; border-top: 1px solid var(--border); margin: 18px 0; }
           </select>
         </div>
       </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Approval Email (for notifications)</label>
+          <input type="email" id="schedApprovalEmail" placeholder="your@email.com">
+        </div>
+      </div>
       <div class="form-group">
         <label>Image (optional)</label>
         <input type="file" id="schedImageFile" accept="image/*"
@@ -1686,10 +1692,18 @@ hr { border: none; border-top: 1px solid var(--border); margin: 18px 0; }
         <pre id="testResultBody" style="background:var(--bg3);border:1px solid var(--border);border-radius:var(--r-sm);padding:12px;font-size:11px;overflow-x:auto;max-height:300px;font-family:var(--font-mono);color:var(--text2)"></pre>
       </div>
     </div>
-  </div>
 
-</main>
-</div><!-- end .app -->
+    <div class="card">
+      <div class="card-title mb-3">📧 Email & Scheduler Debug</div>
+      <div class="form-group">
+        <label>Test Approval Email (Resend)</label>
+        <input type="email" id="testEmailInput" placeholder="your@email.com">
+        <div style="font-size:10px;color:var(--text3);margin-top:4px">Send a test email to verify Resend integration is working</div>
+      </div>
+      <button class="btn btn-secondary btn-sm" onclick="testSendEmail()">📧 Send Test Email</button>
+      <button class="btn btn-secondary btn-sm" onclick="checkSchedulerStatus()">📊 Check Scheduler Status</button>
+      <div id="debugResult" style="margin-top:12px"></div>
+    </div>
 
 <!-- ══════════════════════════════════════════════
      REWRITE MODAL
@@ -2613,6 +2627,7 @@ async function postNow() {
 async function schedulePost() {
   const text = document.getElementById('schedText').value.trim();
   const dt   = document.getElementById('schedDateTime').value;
+  const email = document.getElementById('schedApprovalEmail').value.trim();
   if(!text || !dt) { toast('Text and date are required', 'error'); return; }
   const fmtDt = dt.replace('T',' ').slice(0,16);
   setLoading('schedBtn', true, 'Scheduling...');
@@ -2621,6 +2636,9 @@ async function schedulePost() {
   formData.append('text', text);
   formData.append('scheduled_datetime', fmtDt);
   formData.append('post_type', document.getElementById('schedPostType').value);
+  if(email) {
+    formData.append('approval_email', email);
+  }
 
   // Attach image file if selected
   const fileInput = document.getElementById('schedImageFile');
@@ -2637,9 +2655,10 @@ async function schedulePost() {
     });
     const r = await res.json();
     if(!res.ok) throw { data: r };
-    toast('Scheduled for '+fmtDt, 'success');
+    toast('Scheduled for '+fmtDt + (r.approval_email ? ' — approval email: '+r.approval_email : ''), 'success');
     document.getElementById('schedResult').innerHTML = `
-      <div class="alert alert-success">📅 Scheduled successfully! Job ID: <code style="font-family:var(--font-mono);font-size:11px">${r.job_id}</code></div>`;
+      <div class="alert alert-success">📅 Scheduled successfully! Job ID: <code style="font-family:var(--font-mono);font-size:11px">${r.job_id}</code>
+      ${r.approval_email ? '<br>Approval email will be sent to: <strong>'+r.approval_email+'</strong>' : '<br><strong>⚠️ No approval email set — notifications disabled</strong>'}</div>`;
     refreshDashboard();
   } catch(e) {
     toast('Schedule failed: '+(e.data?.detail||'Authenticate first'), 'error');
@@ -3158,6 +3177,56 @@ async function testApi() {
     body_el.textContent = JSON.stringify(r, null, 2);
   } catch(e) {
     body_el.textContent = 'ERROR: '+JSON.stringify(e.data||e, null, 2);
+  }
+}
+
+async function testSendEmail() {
+  const email = document.getElementById('testEmailInput').value.trim();
+  if(!email) { toast('Enter an email address', 'error'); return; }
+  const resultEl = document.getElementById('debugResult');
+  resultEl.innerHTML = '<div class="alert alert-info">Sending test email...</div>';
+  try {
+    const r = await fetch(`${API_BASE}/debug/test-email?to_email=${encodeURIComponent(email)}`, { method: 'POST' });
+    const data = await r.json();
+    if(!r.ok) throw data;
+    resultEl.innerHTML = `<div class="alert alert-success">✅ Test email sent to <strong>${email}</strong><br/>Check your inbox!</div>`;
+    toast('Test email sent!', 'success');
+  } catch(e) {
+    resultEl.innerHTML = `<div class="alert alert-error">❌ Failed: ${e.detail || JSON.stringify(e)}</div>`;
+    toast('Email test failed', 'error');
+  }
+}
+
+async function checkSchedulerStatus() {
+  const resultEl = document.getElementById('debugResult');
+  resultEl.innerHTML = '<div class="alert alert-info">Checking scheduler...</div>';
+  try {
+    const r = await fetch(`${API_BASE}/debug/scheduler`);
+    const data = await r.json();
+    if(!r.ok) throw data;
+    
+    let html = `<div class="alert alert-info">
+      <strong>📊 Scheduler Status:</strong><br/>
+      Current time: ${data.current_time}<br/>
+      Pending jobs: ${data.pending_jobs}<br/>
+      Due for approval: ${data.due_for_approval?.length || 0}<br/>
+      <br/>
+      <strong>📧 SMTP Email:</strong><br/>
+      Status: ${data.smtp_configured ? '✅ Configured' : '❌ Not configured'}<br/>
+      Host: ${data.smtp_host}:${data.smtp_port}<br/>
+      Sender: ${data.sender_email}<br/>`;
+    
+    if(data.due_for_approval?.length) {
+      html += '<br/><strong>🕐 Jobs due for approval:</strong><ul style="margin:8px 0 0 20px">';
+      data.due_for_approval.forEach(j => {
+        html += `<li>${j.scheduled} (${j.hours_until}h) → ${j.approval_email || '⚠️ No email'}</li>`;
+      });
+      html += '</ul>';
+    }
+    html += '</div>';
+    resultEl.innerHTML = html;
+  } catch(e) {
+    resultEl.innerHTML = `<div class="alert alert-error">❌ Failed: ${e.detail || JSON.stringify(e)}</div>`;
   }
 }
 
