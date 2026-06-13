@@ -37,6 +37,7 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.base import MIMEBase
 from email import encoders
 HAS_SMTP = True  # Built-in, always available
+HAS_RESEND = False  # Resend SDK not used; all email goes through SMTP
 
 
 # ── Gemini ─────────────────────────────────────────────────────────────────────
@@ -76,12 +77,13 @@ CONFIG = {
     "PORT":                   int(os.environ.get("PORT", 8000)),
     "APP_BASE_URL":           os.environ.get("APP_BASE_URL", "http://localhost:8000"),
     # How many hours before scheduled post to send approval email
-    "APPROVAL_LEAD_HOURS":    int(os.environ.get("APPROVAL_LEAD_HOURS", 24)),
+    # Set to 0 to send email immediately when a post is scheduled
+    "APPROVAL_LEAD_HOURS":    int(os.environ.get("APPROVAL_LEAD_HOURS", 720)),  # 30 days default
     # ── SMTP Configuration (works with Gmail, Outlook, custom servers) ──────────
     "SMTP_HOST":              os.environ.get("SMTP_HOST", "smtp.gmail.com"),
     "SMTP_PORT":              int(os.environ.get("SMTP_PORT", 587)),
-    "SMTP_USER":              os.environ.get("SMTP_USER", ""),
-    "SMTP_PASSWORD":          os.environ.get("SMTP_PASS", ""),
+    "SMTP_USER":              os.environ.get("SMTP_USER"),
+    "SMTP_PASSWORD":          os.environ.get("SMTP_PASS"),
     "SENDER_EMAIL":           os.environ.get("SENDER_EMAIL", "brijeshrajapara24@gmail.com"),
     "APPROVAL_EMAIL":         os.environ.get("APPROVAL_EMAIL", ""),
     # ── OpenRouter fallback ─────────────────────────────────────────────────────
@@ -503,6 +505,92 @@ def send_campaign_approval_email(to_email: str, approval_id: str, job_data: dict
     html  = _build_campaign_approval_html(approval_id, job_data, variations, image_urls)
     return _smtp_send(
         f"🚀 Approve LinkedIn Post — {topic[:50]}",
+        html,
+        to_email,
+    )
+
+
+def _build_manual_approval_html(approval_id: str, job_data: dict) -> str:
+    """
+    Approval email for manually scheduled posts (single text + optional image).
+    User clicks Approve → post published immediately to LinkedIn.
+    """
+    base_url   = CONFIG["APP_BASE_URL"]
+    text_preview = escape((job_data.get("text") or "")[:600])
+    sched      = job_data.get("datetime", "")
+    post_type  = escape(job_data.get("post_type") or "Scheduled Post")
+    image_url  = job_data.get("image_url") or ""
+
+    approve_url = f"{base_url}/campaign-approve/{approval_id}?choice=a&variation=0"
+    reject_url  = f"{base_url}/campaign-approve/{approval_id}?action=reject"
+
+    img_block = ""
+    if image_url:
+        img_block = f"""
+<div style="margin:18px 0 0">
+  <div style="font-size:11px;font-weight:700;text-transform:uppercase;color:#64748b;margin-bottom:6px">
+    Attached Image
+  </div>
+  <div style="border:1px solid #1e3a5f;border-radius:8px;overflow:hidden">
+    <img src="{escape(image_url)}" style="width:100%;max-height:260px;object-fit:cover;display:block">
+  </div>
+</div>"""
+
+    return f"""<!DOCTYPE html><html>
+<body style="background:#03050a;color:#f0f6fc;font-family:'Segoe UI',sans-serif;padding:0;margin:0">
+<div style="max-width:660px;margin:32px auto;background:#0a1628;border:1px solid #1e3a5f;border-radius:16px;overflow:hidden">
+
+  <div style="background:linear-gradient(135deg,#0ea5e9,#a855f7);padding:26px 32px">
+    <h1 style="margin:0;font-size:20px;color:#fff">📋 Scheduled Post Ready for Approval</h1>
+    <p style="margin:6px 0 0;color:rgba(255,255,255,0.8);font-size:13px">
+      Click Approve below to publish this post to LinkedIn instantly.
+    </p>
+  </div>
+
+  <div style="padding:24px 32px">
+    <div style="background:#0e1828;border-radius:8px;padding:12px 16px;margin-bottom:18px;display:flex;gap:20px;flex-wrap:wrap">
+      <div><span style="font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:.08em">Post Type</span><br>
+           <strong style="font-size:13px">{post_type}</strong></div>
+      <div><span style="font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:.08em">Scheduled For</span><br>
+           <strong style="font-size:13px">{sched}</strong></div>
+    </div>
+
+    <h3 style="color:#f0f6fc;margin:0 0 8px;font-size:14px">📝 Post Content</h3>
+    <div style="background:#0e1828;border:1px solid #1e3a5f;border-radius:8px;padding:16px;
+         font-size:14px;line-height:1.8;color:#e8f0fc;white-space:pre-wrap">
+{text_preview}{'…' if len(job_data.get('text',''))>600 else ''}
+    </div>
+
+    {img_block}
+
+    <div style="margin-top:24px;display:flex;gap:12px;flex-wrap:wrap">
+      <a href="{approve_url}"
+         style="display:inline-block;padding:12px 28px;background:#0ea5e9;
+                color:#000;border-radius:8px;font-size:14px;font-weight:700;text-decoration:none">
+        ✓ Approve &amp; Publish to LinkedIn
+      </a>
+      <a href="{reject_url}"
+         style="display:inline-block;padding:12px 22px;background:rgba(239,68,68,0.15);
+                color:#ef4444;border:1px solid rgba(239,68,68,0.3);border-radius:8px;
+                font-size:14px;font-weight:700;text-decoration:none">
+        ✗ Reject
+      </a>
+    </div>
+
+    <p style="color:#334155;font-size:10px;margin-top:18px">
+      Generated by LinkedIn Studio PRO · Will not publish unless you click Approve.
+    </p>
+  </div>
+</div>
+</body></html>"""
+
+
+def send_manual_approval_email(to_email: str, approval_id: str, job_data: dict) -> bool:
+    """Send approval email for a manually scheduled post via SMTP."""
+    text_snippet = (job_data.get("text") or "Scheduled Post")[:50]
+    html = _build_manual_approval_html(approval_id, job_data)
+    return _smtp_send(
+        f"📋 Approve Scheduled LinkedIn Post — {text_snippet}",
         html,
         to_email,
     )
@@ -1089,7 +1177,11 @@ def generate_post_variations(profile: dict, topic: str, post_type: str, tone: st
 #  Every 2.5min: check for pending jobs within APPROVAL_LEAD_HOURS → send Resend email
 # ═══════════════════════════════════════════════════════════════════════════════
 def _process_approval_notifications():
-    """For pending campaign jobs near their schedule time → generate post → send Resend approval email."""
+    """
+    For all pending jobs within APPROVAL_LEAD_HOURS of their schedule time:
+    - Manual posts  → send approval email with the stored text/image directly.
+    - AI Campaign posts → generate variations + images, then send approval email.
+    """
     now     = datetime.datetime.now()
     profile = get_profile()
     lead_h  = CONFIG["APPROVAL_LEAD_HOURS"]
@@ -1099,48 +1191,70 @@ def _process_approval_notifications():
             continue
         approval_email = job.get("approval_email") or profile.get("email", "") or CONFIG["APPROVAL_EMAIL"]
         if not approval_email:
+            logger.warning(f"[Scheduler] Job {job.get('id')} has no approval_email — skipping")
             continue
         job_id = str(job.get("id", ""))
+        # Skip if we already created an approval record for this job
         if any(str(a.get("job_id")) == job_id for a in get_approvals()):
             continue
         try:
             sched_dt = datetime.datetime.strptime(job.get("datetime", "9999-12-31 23:59"), "%Y-%m-%d %H:%M")
         except ValueError:
             continue
-        if (sched_dt - now).total_seconds() / 3600 > lead_h:
+        hours_until = (sched_dt - now).total_seconds() / 3600
+        if hours_until > lead_h:
             continue
 
-        logger.info(f"[Scheduler] Building approval for job {job_id}")
+        logger.info(f"[Scheduler] Building approval for job {job_id} (mode={job.get('mode','?')})")
+        approval_id = str(uuid.uuid4())
+        mode = job.get("mode", "manual")
+
         try:
-            topic  = job.get("topic", "LinkedIn Post")
-            pdata  = {k: job.get(k, "") for k in ["company", "domain", "product", "name", "user_type"]}
-            if not pdata["company"]:
-                pdata.update(profile)
+            if mode == "manual":
+                # ── Manual scheduled post ─────────────────────────────────────
+                save_approval({
+                    "id":            approval_id,
+                    "job_id":        job_id,
+                    "topic":         (job.get("text") or "")[:80],
+                    "status":        "awaiting_approval",
+                    "variations":    [{"style": "Manual", "text": job.get("text", "")}],
+                    "image_urls":    [job["image_url"]] if job.get("image_url") else [],
+                    "scheduled_for": job.get("datetime", ""),
+                    "created_at":    datetime.datetime.utcnow().isoformat(),
+                })
+                update_job_status(job_id, "awaiting_approval")
+                sent = send_manual_approval_email(approval_email, approval_id, job)
+                logger.info(f"[Scheduler] Manual approval email {'✅ sent' if sent else '❌ failed (check SMTP config)'} → {approval_email}")
 
-            variations = generate_post_variations(
-                pdata, topic,
-                job.get("post_type", "Brand Announcement"),
-                job.get("tone", "Executive Authority"),
-            )
-            images     = fetch_images_for_post(pdata, job.get("post_type", "Brand Announcement"), job.get("mood", "Professional"), topic, count=3)
-            image_urls = [img["thumb"] for img in images]
+            else:
+                # ── AI Campaign post ──────────────────────────────────────────
+                topic  = job.get("topic", "LinkedIn Post")
+                pdata  = {k: job.get(k, "") for k in ["company", "domain", "product", "name", "user_type"]}
+                if not pdata["company"]:
+                    pdata.update(profile)
 
-            approval_id = str(uuid.uuid4())
-            save_approval({
-                "id":            approval_id,
-                "job_id":        job_id,
-                "topic":         topic,
-                "status":        "awaiting_approval",
-                "variations":    variations,
-                "image_urls":    image_urls,
-                "scheduled_for": job.get("datetime", ""),
-                "created_at":    datetime.datetime.utcnow().isoformat(),
-            })
-            update_job_status(job_id, "awaiting_approval")
+                variations = generate_post_variations(
+                    pdata, topic,
+                    job.get("post_type", "Brand Announcement"),
+                    job.get("tone", "Executive Authority"),
+                )
+                images     = fetch_images_for_post(pdata, job.get("post_type", "Brand Announcement"), job.get("mood", "Professional"), topic, count=3)
+                image_urls = [img["thumb"] for img in images]
 
-            # Send Resend approval email
-            sent = send_campaign_approval_email(approval_email, approval_id, job, variations, image_urls)
-            logger.info(f"[Scheduler] Approval {approval_id} email {'sent' if sent else 'skipped (no Resend key)'}")
+                save_approval({
+                    "id":            approval_id,
+                    "job_id":        job_id,
+                    "topic":         topic,
+                    "status":        "awaiting_approval",
+                    "variations":    variations,
+                    "image_urls":    image_urls,
+                    "scheduled_for": job.get("datetime", ""),
+                    "created_at":    datetime.datetime.utcnow().isoformat(),
+                })
+                update_job_status(job_id, "awaiting_approval")
+                sent = send_campaign_approval_email(approval_email, approval_id, job, variations, image_urls)
+                logger.info(f"[Scheduler] Campaign approval email {'✅ sent' if sent else '❌ failed (check SMTP config)'} → {approval_email}")
+
         except Exception as e:
             logger.error(f"[Scheduler] Approval error for {job_id}: {e}")
 
@@ -1187,13 +1301,10 @@ def _post_approved_jobs():
 
 def run_scheduler_daemon():
     logger.info("[Scheduler] Started")
-    cycle = 0
     while True:
         try:
-            cycle += 1
             _post_approved_jobs()
-            if cycle % 5 == 0:
-                _process_approval_notifications()
+            _process_approval_notifications()  # Check every loop (every 30s)
         except Exception as e:
             logger.exception(f"[Scheduler] Loop error: {e}")
         time.sleep(30)
@@ -1288,7 +1399,7 @@ async def health():
         "supabase":       bool(supabase),
         "pixabay":        bool(CONFIG["PIXABAY_API_KEY"]),
         "pexels":         bool(CONFIG["PEXELS_API_KEY"]),
-        "resend":         HAS_RESEND and bool(CONFIG["RESEND_API_KEY"]),
+        "smtp_ready":     bool(CONFIG["SMTP_USER"] and CONFIG["SMTP_PASSWORD"]),
         "pillow":         HAS_PIL,
     }
 
@@ -1305,7 +1416,7 @@ async def get_stats():
         "scheduled":          sum(1 for j in jobs if j.get("status") in ("pending","approved","awaiting_approval")),
         "linkedin_connected": bool(get_token()),
         "gemini_ready":       HAS_GEMINI and len(GEMINI_API_KEYS) > 0,
-        "resend_ready":       HAS_RESEND and bool(CONFIG["RESEND_API_KEY"]),
+        "smtp_ready":         bool(CONFIG["SMTP_USER"] and CONFIG["SMTP_PASSWORD"]),
         "supabase_connected": bool(supabase),
         "profile_set":        bool(profile.get("company")),
     }
@@ -1558,9 +1669,36 @@ async def schedule_job(
         save_job(job)
     
     logger.info(f"[Schedule] Job {job_id} → {scheduled_datetime} | Email: {final_approval_email}")
+
+    # ── Send approval email immediately on scheduling ─────────────────────────
+    email_sent = False
+    if final_approval_email and CONFIG["SMTP_USER"] and CONFIG["SMTP_PASSWORD"]:
+        try:
+            approval_id = str(uuid.uuid4())
+            save_approval({
+                "id":            approval_id,
+                "job_id":        job_id,
+                "topic":         (text or "")[:80],
+                "status":        "awaiting_approval",
+                "variations":    [{"style": "Manual", "text": text}],
+                "image_urls":    [image_url] if image_url else [],
+                "scheduled_for": scheduled_datetime,
+                "created_at":    datetime.datetime.utcnow().isoformat(),
+            })
+            update_job_status(job_id, "awaiting_approval")
+            email_sent = send_manual_approval_email(final_approval_email, approval_id, job)
+            logger.info(f"[Schedule] Approval email {'✅ sent' if email_sent else '❌ failed'} → {final_approval_email}")
+        except Exception as e:
+            logger.error(f"[Schedule] Approval email error: {e}")
+    elif not final_approval_email:
+        logger.warning("[Schedule] No approval email — set APPROVAL_EMAIL or add email to Brand Profile")
+    elif not CONFIG["SMTP_USER"]:
+        logger.warning("[Schedule] SMTP not configured — set SMTP_USER and SMTP_PASSWORD env vars")
+
     return {
         "status": "scheduled", "job_id": job_id, "scheduled_for": scheduled_datetime,
-        "image_url": image_url, "approval_email": final_approval_email
+        "image_url": image_url, "approval_email": final_approval_email,
+        "email_sent": email_sent,
     }
 
 # ── AI Campaign (with Resend approval emails) ──────────────────────────────────
@@ -1633,7 +1771,7 @@ async def auto_campaign(data: AutoCampaignIn, background_tasks: BackgroundTasks)
         "posts_per_day":    data.posts_per_day,
         "total_posts":      len(created),
         "approval_email":   approval_email,
-        "resend_note":      f"Approval emails will be sent to {approval_email} via Resend {CONFIG['APPROVAL_LEAD_HOURS']}h before each post.",
+        "resend_note":      f"Approval emails will be sent to {approval_email} via SMTP {CONFIG['APPROVAL_LEAD_HOURS']}h before each post.",
         "jobs":             created,
     }
 
@@ -1969,22 +2107,8 @@ def _ea_consume_token(token: str, expected_type: str) -> Optional[dict]:
     return data
 
 def _ea_resend(subject: str, html: str, to_email: str) -> bool:
-    if not HAS_RESEND or not CONFIG["RESEND_API_KEY"]:
-        logger.info(f"[EmailAgent] DUMMY — would send to {to_email}: {subject}")
-        return False
-    try:
-        resend_lib.api_key = CONFIG["RESEND_API_KEY"]
-        resend_lib.Emails.send({
-            "from":    CONFIG["SENDER_EMAIL"],
-            "to":      to_email,
-            "subject": subject,
-            "html":    html,
-        })
-        logger.info(f"[EmailAgent] Sent → {to_email}")
-        return True
-    except Exception as e:
-        logger.warning(f"[EmailAgent] Send failed: {e}")
-        return False
+    """Send via SMTP (replaces old Resend SDK calls — all email is SMTP now)."""
+    return _smtp_send(subject, html, to_email)
 
 def _ea_topic_email_html(tokenized_topics: list) -> str:
     base_url = CONFIG["APP_BASE_URL"]
@@ -2125,7 +2249,7 @@ async def api_send_topics_email(data: SendTopicsEmailIn):
         "recipient": to_email,
         "count":     len(tokenized),
         "topics":    topics,
-        "note":      "Check RESEND_API_KEY if status is dummy_mode" if not sent else "",
+        "note":      "Check SMTP_USER/SMTP_PASSWORD env vars if email was not received." if not sent else "",
     }
 
 # ── GET /select-topic/{token} — user clicks topic in email ────────────────────
@@ -2188,7 +2312,7 @@ async def select_topic_handler(token: str):
 
         return HTMLResponse(content=_inline_page(
             "🚀", "Topic Selected!",
-            f"Draft for '{topic_str[:60]}' generated and {'sent to your inbox for approval.' if sent else 'ready (check server logs for approve link — RESEND_API_KEY not set).'}",
+            f"Draft for '{topic_str[:60]}' generated and {'sent to your inbox for approval.' if sent else 'ready (check SMTP_USER/SMTP_PASSWORD env vars if email not received).'}",
             "#0ea5e9"))
 
     except Exception as e:
