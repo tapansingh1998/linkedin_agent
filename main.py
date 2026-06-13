@@ -572,8 +572,7 @@ def linkedin_post_text(access_token: str, urn: str, text: str) -> tuple:
             "X-Restli-Protocol-Version": "2.0.0",
             "Content-Type":              "application/json",
         },
-        json=payload, timeout=30,
-    )
+        json=payload, timeout=30)
     try:
         return r.status_code, r.json()
     except Exception:
