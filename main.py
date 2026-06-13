@@ -1,6 +1,7 @@
 """
-LinkedIn Studio PRO v4.2 — FIXED
-- Port 465: SSL (SMTP_SSL), Port 587: STARTTLS
+LinkedIn Studio PRO v4.3 — RESEND EMAIL (No SMTP)
+- Uses Resend API instead of SMTP (works on Render free tier)
+- Port blocking issue completely solved
 - Approval email sends immediately on scheduling
 - One-click approve → posts to LinkedIn instantly
 """
@@ -24,9 +25,13 @@ logger = logging.getLogger("li_studio")
 
 import requests as http_requests
 
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
+# ── Resend (replaces smtplib completely) ──────────────────────────────────────
+try:
+    import resend
+    HAS_RESEND = True
+except ImportError:
+    HAS_RESEND = False
+    logger.warning("resend not installed — run: pip install resend")
 
 try:
     import google.generativeai as genai
@@ -63,17 +68,18 @@ CONFIG = {
     "PORT":                   int(os.environ.get("PORT", 8000)),
     "APP_BASE_URL":           os.environ.get("APP_BASE_URL", "http://localhost:8000"),
     "APPROVAL_LEAD_HOURS":    int(os.environ.get("APPROVAL_LEAD_HOURS", 720)),
-    # ── SMTP ──────────────────────────────────────────────────────────────────
-    # For Gmail port 465 (SSL) or 587 (STARTTLS)
-    # For Gmail: enable 2FA, create App Password at myaccount.google.com/apppasswords
-    # SMTP_USER = your Gmail address
-    # SMTP_PASS = 16-char app password (no spaces)
-    "SMTP_HOST": os.environ.get("SMTP_HOST", "smtp.gmail.com"),
-    "SMTP_PORT": int(os.environ.get("SMTP_PORT", 465)),
-    "SMTP_USER":     os.environ.get("SMTP_USER",""),
-    "SMTP_PASSWORD": os.environ.get("SMTP_PASSWORD",""),
-    "SENDER_EMAIL":  os.environ.get("SENDER_EMAIL", os.environ.get("SMTP_USER", "")),
-    "APPROVAL_EMAIL": os.environ.get("APPROVAL_EMAIL", ""),
+
+    # ── Resend (HTTP API — no port blocking) ──────────────────────────────────
+    # 1. Sign up free at resend.com
+    # 2. Add & verify your domain (or use onboarding@resend.dev for testing)
+    # 3. Create API key at resend.com/api-keys
+    # 4. Set RESEND_API_KEY in Render environment variables
+    # 5. Set SENDER_EMAIL to a verified email, e.g. noreply@yourdomain.com
+    #    (For testing without domain: use onboarding@resend.dev)
+    "RESEND_API_KEY":  os.environ.get("RESEND_API_KEY", ""),
+    "SENDER_EMAIL":    os.environ.get("SENDER_EMAIL", "brijeshrajapara24@gmail.com"),
+    "APPROVAL_EMAIL":  os.environ.get("APPROVAL_EMAIL", ""),
+
     "OPENROUTER_API_KEY":  os.environ.get("OPENROUTER_API_KEY", ""),
     "OPENROUTER_MODEL":    os.environ.get("OPENROUTER_MODEL", "meta-llama/llama-3.3-70b-instruct:free"),
 }
@@ -83,7 +89,6 @@ os.makedirs(CONFIG["SCHEDULED_IMAGES_DIR"], exist_ok=True)
 
 # ── Gemini rotating keys ───────────────────────────────────────────────────────
 GEMINI_API_KEYS = [k for k in [os.getenv(f"GEMINI_API_KEY_{i}") for i in range(1, 11)] if k]
-# Also accept single key
 _single = os.getenv("GEMINI_API_KEY", "")
 if _single and _single not in GEMINI_API_KEYS:
     GEMINI_API_KEYS.insert(0, _single)
@@ -141,10 +146,10 @@ REWRITE_STYLES = {
 # ═══════════════════════════════════════════════════════════════════════════════
 #  PERSISTENCE
 # ═══════════════════════════════════════════════════════════════════════════════
-_TOKEN_FILE           = "li_tokens.json"
-_PROFILE_FILE         = "li_profile.json"
-_JOBS_FILE            = "scheduler_jobs.json"
-_APPROVALS_FILE       = "li_approvals.json"
+_TOKEN_FILE    = "li_tokens.json"
+_PROFILE_FILE  = "li_profile.json"
+_JOBS_FILE     = "scheduler_jobs.json"
+_APPROVALS_FILE = "li_approvals.json"
 
 def _save_json(path, data):
     try:
@@ -336,70 +341,80 @@ def update_approval(approval_id: str, data: dict):
         except Exception as e:
             logger.warning(f"[Supabase] update_approval: {e}")
 
+
 # ═══════════════════════════════════════════════════════════════════════════════
-#  SMTP EMAIL — FIXED
-#  Supports both port 465 (SSL) and port 587 (STARTTLS)
+#  RESEND EMAIL  ←  replaces all smtplib code
+#
+#  Setup (5 minutes):
+#  1. resend.com → Sign up free
+#  2. resend.com/domains → Add & verify your domain
+#     (Testing only: use "delivered@resend.dev" as to_email — no domain needed)
+#  3. resend.com/api-keys → Create key → copy it
+#  4. Render → Environment → Add:
+#       RESEND_API_KEY = re_xxxxxxxxxxxx
+#       SENDER_EMAIL   = noreply@yourdomain.com
+#       APPROVAL_EMAIL = you@youremail.com
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def _smtp_send(subject: str, html: str, to_email: str) -> bool:
+def _resend_send(subject: str, html: str, to_email: str) -> bool:
     """
-    Send email via SMTP.
-    Port 465 → SMTP_SSL (Gmail default, most reliable)
-    Port 587 → starttls()
-    
-    Gmail setup:
-      1. Enable 2-Step Verification on your Google account
-      2. Go to myaccount.google.com/apppasswords
-      3. Create app password for "Mail"
-      4. Use that 16-char password as SMTP_PASS
+    Send email using Resend HTTP API.
+    No ports. No SMTP. Works on any cloud host including Render free tier.
     """
-    smtp_user = CONFIG["SMTP_USER"]
-    smtp_pass = CONFIG["SMTP_PASSWORD"]
-    smtp_host = CONFIG["SMTP_HOST"]
-    smtp_port = CONFIG["SMTP_PORT"]
-    sender    = CONFIG["SENDER_EMAIL"] or smtp_user
+    api_key = CONFIG["RESEND_API_KEY"]
+    sender  = CONFIG["SENDER_EMAIL"] or "onboarding@resend.dev"
 
-    if not smtp_user or not smtp_pass:
-        logger.warning(f"[SMTP] No credentials set. Would send '{subject}' to {to_email}")
-        logger.warning("[SMTP] Set SMTP_USER and SMTP_PASS environment variables")
+    if not api_key:
+        logger.warning("[Resend] RESEND_API_KEY not set — skipping email")
+        logger.warning("[Resend] Get a free key at resend.com/api-keys")
         return False
 
-    msg = MIMEMultipart("alternative")
-    msg["Subject"] = subject
-    msg["From"]    = f"LinkedIn Studio PRO <{sender}>"
-    msg["To"]      = to_email
-    msg.attach(MIMEText(html, "html", "utf-8"))
+    if not HAS_RESEND:
+        # Fallback: use raw HTTP if resend package not installed
+        try:
+            resp = http_requests.post(
+                "https://api.resend.com/emails",
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "from": f"LinkedIn Studio PRO <{sender}>",
+                    "to": [to_email],
+                    "subject": subject,
+                    "html": html,
+                },
+                timeout=15,
+            )
+            if resp.status_code in (200, 201):
+                logger.info(f"[Resend] ✅ Email sent to {to_email} | {subject}")
+                return True
+            else:
+                logger.error(f"[Resend] ❌ HTTP {resp.status_code}: {resp.text}")
+                return False
+        except Exception as e:
+            logger.error(f"[Resend] ❌ {type(e).__name__}: {e}")
+            return False
 
+    # Use official resend SDK
     try:
-        if smtp_port == 465:
-            # SSL from the start (most reliable for Gmail)
-            logger.info(f"[SMTP] Connecting via SSL to {smtp_host}:{smtp_port}")
-            with smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=20) as server:
-                server.login(smtp_user, smtp_pass)
-                server.send_message(msg)
+        resend.api_key = api_key
+        params = {
+            "from": f"LinkedIn Studio PRO <{sender}>",
+            "to": [to_email],
+            "subject": subject,
+            "html": html,
+        }
+        result = resend.Emails.send(params)
+        # SDK returns dict with 'id' on success
+        if result and result.get("id"):
+            logger.info(f"[Resend] ✅ Email sent to {to_email} | id={result['id']} | {subject}")
+            return True
         else:
-            # STARTTLS (port 587)
-            logger.info(f"[SMTP] Connecting via STARTTLS to {smtp_host}:{smtp_port}")
-            with smtplib.SMTP(smtp_host, smtp_port, timeout=20) as server:
-                server.ehlo()
-                server.starttls()
-                server.ehlo()
-                server.login(smtp_user, smtp_pass)
-                server.send_message(msg)
-
-        logger.info(f"[SMTP] ✅ Email sent to {to_email} | Subject: {subject}")
-        return True
-
-    except smtplib.SMTPAuthenticationError:
-        logger.error("[SMTP] ❌ AUTH FAILED")
-        logger.error("[SMTP] Gmail users: use App Password (not account password)")
-        logger.error("[SMTP] Get one at: myaccount.google.com/apppasswords")
-        return False
-    except smtplib.SMTPConnectError as e:
-        logger.error(f"[SMTP] ❌ Cannot connect to {smtp_host}:{smtp_port} — {e}")
-        return False
+            logger.error(f"[Resend] ❌ Unexpected response: {result}")
+            return False
     except Exception as e:
-        logger.error(f"[SMTP] ❌ {type(e).__name__}: {e}")
+        logger.error(f"[Resend] ❌ {type(e).__name__}: {e}")
         return False
 
 
@@ -411,7 +426,7 @@ def _build_approval_html(approval_id: str, job_data: dict, variations: list, ima
 
     var_html = ""
     for i, v in enumerate(variations):
-        label       = chr(65 + i)  # A, B, C
+        label       = chr(65 + i)
         approve_url = f"{base_url}/campaign-approve/{approval_id}?choice={label.lower()}&variation={i}"
         text_preview = escape((v.get("text") or "")[:600])
         var_html += f"""
@@ -486,11 +501,10 @@ def _build_approval_html(approval_id: str, job_data: dict, variations: list, ima
 
 
 def send_approval_email(to_email: str, approval_id: str, job_data: dict,
-                         variations: list, image_urls: list) -> bool:
-    """Send approval email for any job type (manual or campaign)."""
+                        variations: list, image_urls: list) -> bool:
     topic = job_data.get("topic") or (job_data.get("text", "")[:50]) or "LinkedIn Post"
     html  = _build_approval_html(approval_id, job_data, variations, image_urls)
-    return _smtp_send(f"🚀 Approve LinkedIn Post — {topic[:50]}", html, to_email)
+    return _resend_send(f"🚀 Approve LinkedIn Post — {topic[:50]}", html, to_email)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -639,7 +653,6 @@ def linkedin_post_with_image(access_token: str, urn: str, text: str, image_path:
         return r.status_code, r.text
 
 def _publish_to_linkedin(token: str, urn: str, text: str, image_url: str = None) -> tuple:
-    """Helper: download image if URL given, then post."""
     image_path = None
     if image_url:
         image_path = download_temp_image(image_url)
@@ -667,7 +680,6 @@ OPENROUTER_MODELS_FALLBACK = [
 
 def get_next_gemini_model(model_name: str = None, key_idx: int = None):
     global _current_key_index
-    now = time.time()
     with _key_lock:
         if key_idx is not None:
             idx = key_idx % len(GEMINI_API_KEYS)
@@ -810,7 +822,7 @@ def download_image(url: str, save_path: str) -> bool:
     return False
 
 # ═══════════════════════════════════════════════════════════════════════════════
-#  IMAGE GENERATION
+#  IMAGE GENERATION (PIL)
 # ═══════════════════════════════════════════════════════════════════════════════
 def _load_font(size: int, bold: bool = True):
     if not HAS_PIL:
@@ -839,8 +851,7 @@ def build_poster_layout_1(bg_img, headline, org_name, post_type, domain, accent_
     canvas = Image.new("RGBA", (W, H))
     bg = ImageEnhance.Brightness(bg_img.resize((W, H), Image.Resampling.LANCZOS).convert("RGB")).enhance(0.75)
     canvas.paste(bg.convert("RGBA"), (0, 0))
-    acc = _hex_to_rgb(accent_hex)
-    drk = _hex_to_rgb(dark_hex)
+    acc = _hex_to_rgb(accent_hex); drk = _hex_to_rgb(dark_hex)
     overlay = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     for x in range(W):
         t = 1.0 - min(1.0, x / 650)
@@ -1063,11 +1074,9 @@ def generate_post_variations(profile: dict, topic: str, post_type: str, tone: st
 #  BACKGROUND SCHEDULER
 # ═══════════════════════════════════════════════════════════════════════════════
 def _post_approved_jobs():
-    """Post approved jobs whose scheduled time has arrived."""
     now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
     token   = get_token()
     profile = get_profile()
-
     due = [
         j for j in get_all_jobs()
         if str(j.get("status", "")).lower() == "approved"
@@ -1110,7 +1119,7 @@ async def lifespan(app: FastAPI):
     logger.info("[App] Scheduler started")
     yield
 
-app = FastAPI(title="LinkedIn Studio PRO", version="4.2.1", lifespan=lifespan)
+app = FastAPI(title="LinkedIn Studio PRO", version="4.3.0", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True,
                    allow_methods=["*"], allow_headers=["*"])
 
@@ -1174,18 +1183,17 @@ border-radius:16px;max-width:520px;width:90%}}</style></head>
 
 @app.get("/health")
 async def health():
-    smtp_ok = bool(CONFIG["SMTP_USER"] and CONFIG["SMTP_PASSWORD"])
+    resend_ok = bool(CONFIG["RESEND_API_KEY"])
     return {
-        "status": "ok", "version": "4.2.1", "scheduler": "running",
+        "status": "ok", "version": "4.3.0", "scheduler": "running",
         "gemini":         HAS_GEMINI and len(GEMINI_API_KEYS) > 0,
         "linkedin_token": bool(get_token()),
         "supabase":       bool(supabase),
         "pixabay":        bool(CONFIG["PIXABAY_API_KEY"]),
         "pexels":         bool(CONFIG["PEXELS_API_KEY"]),
-        "smtp_ready":     smtp_ok,
-        "smtp_host":      CONFIG["SMTP_HOST"],
-        "smtp_port":      CONFIG["SMTP_PORT"],
-        "smtp_user":      CONFIG["SMTP_USER"] or "NOT SET",
+        "resend_ready":   resend_ok,
+        "resend_sdk":     HAS_RESEND,
+        "sender_email":   CONFIG["SENDER_EMAIL"] or "NOT SET",
         "pillow":         HAS_PIL,
     }
 
@@ -1194,7 +1202,6 @@ async def get_analytics():
     jobs = get_all_jobs()
     now  = datetime.datetime.now()
     weekly: Dict[str,int] = {}
-    cutoff = now - datetime.timedelta(days=30)
     for j in jobs:
         try:
             dt = datetime.datetime.strptime(j.get("datetime",""), "%Y-%m-%d %H:%M")
@@ -1212,7 +1219,6 @@ async def get_analytics():
         "posts_per_week": weekly,
     }
 
-# ── Auth ───────────────────────────────────────────────────────────────────────
 @app.get("/auth/login")
 async def auth_login():
     if not CONFIG["LINKEDIN_CLIENT_ID"]:
@@ -1268,7 +1274,6 @@ async def auth_status():
 async def auth_disconnect():
     delete_token(); return {"status": "disconnected"}
 
-# ── Profile ────────────────────────────────────────────────────────────────────
 @app.post("/profile")
 async def set_profile(data: ProfileIn):
     profile = get_profile()
@@ -1280,7 +1285,6 @@ async def set_profile(data: ProfileIn):
 async def read_profile():
     return get_profile()
 
-# ── AI Topics ──────────────────────────────────────────────────────────────────
 @app.post("/generate-topics")
 async def gen_topics():
     p = get_profile()
@@ -1291,12 +1295,10 @@ async def gen_topics():
         raise HTTPException(status_code=500, detail="Could not generate topics. Check GEMINI_API_KEY.")
     return {"topics": topics, "count": len(topics)}
 
-# ── Rewrite ────────────────────────────────────────────────────────────────────
 @app.post("/rewrite")
 async def rewrite(data: RewriteIn):
     return {"original": data.text, "rewritten": rewrite_post(data.text, data.style), "style": data.style}
 
-# ── Generate Post ──────────────────────────────────────────────────────────────
 @app.post("/generate")
 async def generate(data: GeneratePostIn):
     profile  = _require_profile()
@@ -1315,7 +1317,6 @@ async def generate(data: GeneratePostIn):
         "topic":         data.topic, "headline": headline,
     }
 
-# ── Images ─────────────────────────────────────────────────────────────────────
 @app.post("/images/search")
 async def image_search_post(data: ImageSearchIn):
     results = search_images(data.query, data.count)
@@ -1333,7 +1334,6 @@ async def image_edit_endpoint(data: ImageEditIn):
         raise HTTPException(status_code=404, detail="Image not found")
     return {"edited_path": edit_image(data.image_path, data.operations)}
 
-# ── Post Now (instant) ─────────────────────────────────────────────────────────
 @app.post("/api/posts/instant")
 async def publish_instant_post(
     text:  str                  = Form(...),
@@ -1343,14 +1343,12 @@ async def publish_instant_post(
     token = get_token()
     if not token:
         raise HTTPException(status_code=401, detail="LinkedIn not authenticated.")
-
     image_path = None
     if image and image.filename:
         suffix = Path(image.filename).suffix or ".png"
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
             tmp.write(await image.read())
             image_path = tmp.name
-
     try:
         if image_path and os.path.exists(image_path):
             st, resp = linkedin_post_with_image(token, urn, text, image_path)
@@ -1358,7 +1356,6 @@ async def publish_instant_post(
             except: pass
         else:
             st, resp = linkedin_post_text(token, urn, text)
-
         if st in (200, 201):
             return {"status": "success", "response": resp}
         raise HTTPException(status_code=st, detail=str(resp))
@@ -1367,7 +1364,6 @@ async def publish_instant_post(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# ── Schedule Single ────────────────────────────────────────────────────────────
 @app.post("/schedule")
 async def schedule_job(
     text:               str                  = Form(...),
@@ -1409,7 +1405,6 @@ async def schedule_job(
     }
     save_job(job)
 
-    # Send approval email immediately
     email_sent = False
     approval_id = str(uuid.uuid4())
     if final_email:
@@ -1427,9 +1422,7 @@ async def schedule_job(
         })
         update_job_status(job_id, "awaiting_approval")
         email_sent = send_approval_email(final_email, approval_id, job, variations, image_urls)
-        logger.info(f"[Schedule] Approval email {'✅ sent' if email_sent else '❌ failed'} → {final_email}")
-    else:
-        logger.warning("[Schedule] No approval_email — post will stay pending until manually approved")
+        logger.info(f"[Schedule] Resend email {'✅ sent' if email_sent else '❌ failed'} → {final_email}")
 
     return {
         "status": "scheduled", "job_id": job_id,
@@ -1438,7 +1431,6 @@ async def schedule_job(
         "email_sent": email_sent,
     }
 
-# ── AI Campaign ────────────────────────────────────────────────────────────────
 @app.post("/campaign/auto")
 async def auto_campaign(data: AutoCampaignIn, background_tasks: BackgroundTasks):
     profile = get_profile()
@@ -1493,7 +1485,6 @@ async def auto_campaign(data: AutoCampaignIn, background_tasks: BackgroundTasks)
             save_job(job)
             created.append({"id": job_id, "topic": topic, "datetime": sched.strftime("%Y-%m-%d %H:%M")})
 
-    # Send approval emails for all jobs immediately in background
     if approval_email:
         def send_campaign_emails():
             for job_info in created:
@@ -1524,8 +1515,8 @@ async def auto_campaign(data: AutoCampaignIn, background_tasks: BackgroundTasks)
                     })
                     update_job_status(job_info["id"], "awaiting_approval")
                     sent = send_approval_email(approval_email, appr_id, job_data, variations, img_urls)
-                    logger.info(f"[Campaign] Email {'✅' if sent else '❌'} for job {job_info['id']}")
-                    time.sleep(2)  # gentle rate limiting
+                    logger.info(f"[Campaign] Resend {'✅' if sent else '❌'} for job {job_info['id']}")
+                    time.sleep(2)
                 except Exception as e:
                     logger.error(f"[Campaign] Email error for {job_info['id']}: {e}")
         background_tasks.add_task(send_campaign_emails)
@@ -1539,7 +1530,6 @@ async def auto_campaign(data: AutoCampaignIn, background_tasks: BackgroundTasks)
         "jobs":          created,
     }
 
-# ── One-click approve from email ───────────────────────────────────────────────
 @app.get("/campaign-approve/{approval_id}", response_class=HTMLResponse)
 async def campaign_approve_handler(
     approval_id: str,
@@ -1555,8 +1545,6 @@ async def campaign_approve_handler(
     if approval.get("status") in ("approved","rejected","posted"):
         return HTMLResponse(content=_inline_page("⚠️","Already Processed",
             f"This post was already {approval.get('status')}.", "#f59e0b"))
-
-    msg, color = "", "#0ea5e9"
 
     if action == "reject":
         update_approval(approval_id, {"status": "rejected"})
@@ -1594,7 +1582,6 @@ async def campaign_approve_handler(
                 "image_url":     selected_image_url,
             })
 
-        # ── Publish to LinkedIn immediately ────────────────────────────────────
         try:
             all_jobs  = get_all_jobs()
             job       = next((j for j in all_jobs if str(j.get("id")) == str(job_id)), {})
@@ -1619,14 +1606,13 @@ async def campaign_approve_handler(
                 update_approval(approval_id, {"status": "posted"})
                 if job_id:
                     update_job_status(job_id, "posted", {"posted_at": datetime.datetime.utcnow().isoformat()})
-                logger.info(f"[Approve] ✅ Posted to LinkedIn via email link — job {job_id}")
+                logger.info(f"[Approve] ✅ Posted to LinkedIn — job {job_id}")
                 return HTMLResponse(content=_inline_page("✅","Published to LinkedIn!",
                     "Your post is now live on LinkedIn. Check your profile!","#22c55e"))
             else:
                 err_detail = str(resp)[:200]
                 if job_id:
                     update_job_status(job_id, f"failed_http_{st}", {"linkedin_error": err_detail})
-                logger.error(f"[Approve] LinkedIn error {st}: {resp}")
                 return HTMLResponse(content=_inline_page("⚠️",f"LinkedIn Error {st}",
                     f"Approved but LinkedIn returned: {err_detail}","#f59e0b"))
 
@@ -1639,7 +1625,6 @@ async def campaign_approve_handler(
 
     return HTMLResponse(content=_inline_page("⚠️","No Action","No action specified.","#64748b"))
 
-# ── Approvals dashboard ────────────────────────────────────────────────────────
 @app.get("/approvals")
 async def list_approvals(status: Optional[str] = None):
     approvals = get_approvals(status)
@@ -1658,7 +1643,6 @@ async def approval_action(data: ApprovalActionIn):
             vars_ = approval.get("variations", [])
             if vars_ and data.variation_index < len(vars_):
                 text = vars_[data.variation_index].get("text","")
-
         update_approval(data.approval_id, {
             "status":             "approved",
             "selected_variation": data.variation_index,
@@ -1667,8 +1651,6 @@ async def approval_action(data: ApprovalActionIn):
         })
         if job_id:
             update_job_status(job_id, "approved", {"approved_text": text or ""})
-
-        # Try immediate publish
         post_result = "approved"
         try:
             all_jobs = get_all_jobs()
@@ -1710,7 +1692,6 @@ async def approval_action(data: ApprovalActionIn):
 
     raise HTTPException(status_code=400, detail="action must be: approve, reject, or skip")
 
-# ── Jobs ───────────────────────────────────────────────────────────────────────
 @app.get("/jobs")
 async def list_jobs(status: Optional[str] = None):
     jobs = get_all_jobs(status)
@@ -1746,7 +1727,6 @@ async def serve_cache(filename: str):
         raise HTTPException(status_code=404)
     return FileResponse(path)
 
-# ── Debug ──────────────────────────────────────────────────────────────────────
 @app.get("/debug/profile")
 async def debug_profile():
     return get_profile()
@@ -1764,63 +1744,43 @@ async def debug_linkedin():
 
 @app.get("/debug/scheduler")
 async def debug_scheduler():
-    now    = datetime.datetime.now()
-    jobs   = get_all_jobs()
+    now = datetime.datetime.now()
+    jobs = get_all_jobs()
     return {
-        "current_time":   now.isoformat(),
-        "total_jobs":     len(jobs),
-        "pending_jobs":   sum(1 for j in jobs if j.get("status") in ("pending","awaiting_approval")),
-        "approved_jobs":  sum(1 for j in jobs if j.get("status") == "approved"),
-        "smtp_configured": bool(CONFIG["SMTP_USER"] and CONFIG["SMTP_PASSWORD"]),
-        "smtp_host":      CONFIG["SMTP_HOST"],
-        "smtp_port":      CONFIG["SMTP_PORT"],
-        "sender_email":   CONFIG["SENDER_EMAIL"],
+        "current_time":    now.isoformat(),
+        "total_jobs":      len(jobs),
+        "pending_jobs":    sum(1 for j in jobs if j.get("status") in ("pending","awaiting_approval")),
+        "approved_jobs":   sum(1 for j in jobs if j.get("status") == "approved"),
+        "resend_configured": bool(CONFIG["RESEND_API_KEY"]),
+        "resend_sdk":      HAS_RESEND,
+        "sender_email":    CONFIG["SENDER_EMAIL"],
     }
 
 @app.post("/debug/test-email")
 async def test_email(to_email: str):
-    if not CONFIG["SMTP_USER"] or not CONFIG["SMTP_PASSWORD"]:
+    if not CONFIG["RESEND_API_KEY"]:
         raise HTTPException(status_code=400,
-            detail="SMTP not configured. Set SMTP_USER and SMTP_PASS environment variables.")
+            detail="RESEND_API_KEY not set. Get a free key at resend.com/api-keys and add it to Render environment variables.")
     html = f"""<!DOCTYPE html><html>
 <body style="background:#03050a;color:#e8f0fc;font-family:system-ui;padding:20px">
 <div style="max-width:600px;margin:auto;background:#0e1828;border:1px solid #1b2d45;
      border-radius:12px;padding:24px;text-align:center">
   <div style="font-size:48px">✅</div>
-  <h2 style="color:#0ea5e9">SMTP Email is Working!</h2>
-  <p>LinkedIn Studio PRO can send emails successfully.</p>
+  <h2 style="color:#0ea5e9">Resend Email is Working!</h2>
+  <p>LinkedIn Studio PRO can send emails via Resend successfully.</p>
   <p style="color:#8aa0bc;font-size:12px;margin-top:16px">
     Sent at {datetime.datetime.now().isoformat()}<br>
-    SMTP: {CONFIG['SMTP_HOST']}:{CONFIG['SMTP_PORT']}<br>
+    Provider: Resend API (no SMTP ports needed)<br>
     From: {CONFIG['SENDER_EMAIL']}
   </p>
 </div>
 </body></html>"""
-    sent = _smtp_send("✅ Test Email — LinkedIn Studio PRO", html, to_email)
+    sent = _resend_send("✅ Test Email — LinkedIn Studio PRO", html, to_email)
     if sent:
-        return {"status": "sent", "to": to_email}
+        return {"status": "sent", "to": to_email, "provider": "Resend"}
     raise HTTPException(status_code=500,
-        detail="SMTP send failed. Check logs for details. Gmail users need an App Password.")
+        detail="Resend send failed. Check logs. Make sure RESEND_API_KEY is valid and SENDER_EMAIL is verified.")
 
-@app.get("/debug/jobs-detailed")
-async def debug_jobs_detailed():
-    jobs = get_all_jobs()
-    return {
-        "total": len(jobs),
-        "jobs": [
-            {
-                "id":             j.get("id"),
-                "datetime":       j.get("datetime"),
-                "status":         j.get("status"),
-                "approval_email": j.get("approval_email"),
-                "text":           j.get("text","")[:60],
-                "mode":           j.get("mode"),
-            }
-            for j in jobs[-20:]
-        ]
-    }
-
-# ── Frontend ───────────────────────────────────────────────────────────────────
 @app.get("/", response_class=HTMLResponse)
 async def home():
     for f in ["index.html", "linkedin-studio-pro (4).html", "frontend.html"]:
@@ -1829,7 +1789,7 @@ async def home():
                 return HTMLResponse(content=fh.read())
     return HTMLResponse(content="""<!DOCTYPE html><html>
 <body style="background:#03050a;color:#e8f0fc;font-family:system-ui;padding:40px;text-align:center">
-<h1 style="color:#0ea5e9">LinkedIn Studio PRO v4.2.1</h1>
+<h1 style="color:#0ea5e9">LinkedIn Studio PRO v4.3.0</h1>
 <p>Place <code>index.html</code> next to <code>main.py</code>.</p>
 <p><a href="/docs" style="color:#0ea5e9">→ API Docs</a></p>
 </body></html>""")
