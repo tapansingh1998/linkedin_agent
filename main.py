@@ -568,7 +568,7 @@ def linkedin_post_text(access_token: str, urn: str, text: str) -> tuple:
         "https://api.linkedin.com/rest/posts",
         headers={
             "Authorization":             f"Bearer {access_token}",
-            "LinkedIn-Version":           "202405",
+            "LinkedIn-Version":           "202506",
             "X-Restli-Protocol-Version": "2.0.0",
             "Content-Type":              "application/json",
         },
@@ -641,7 +641,7 @@ def linkedin_post_with_image(access_token: str, urn: str, text: str, image_path:
         "https://api.linkedin.com/rest/posts",
         headers={
             "Authorization":             f"Bearer {access_token}",
-            "LinkedIn-Version":           "202405",
+            "LinkedIn-Version":           "202506",
             "Content-Type":              "application/json",
             "X-Restli-Protocol-Version": "2.0.0",
         },
