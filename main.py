@@ -1,13 +1,13 @@
 """
 ╔══════════════════════════════════════════════════════════════════════════════╗
 ║      LinkedIn Studio PRO v4.2 — FastAPI Backend (Render-Ready)              ║
-║   Supabase · OAuth · AI Topics · AI Campaign · Resend Approval Email        ║
+║   Supabase · OAuth · AI Topics · AI Campaign · SMTP Approval Email          ║
 ╚══════════════════════════════════════════════════════════════════════════════╝
 
-EMAIL FLOW (Resend only — no SMTP):
+EMAIL FLOW (SMTP — works with Gmail, Outlook, any SMTP server):
   AI Campaign creates scheduled jobs
   → Scheduler fires 24h before each post
-  → Resend sends approval email with post variations + images
+  → SMTP sends approval email with post variations + images
   → User clicks "Approve" in email → post published to LinkedIn instantly
 """
 
@@ -30,13 +30,14 @@ logger = logging.getLogger("li_studio")
 
 import requests as http_requests
 
-# ── Resend ─────────────────────────────────────────────────────────────────────
-try:
-    import resend as resend_lib
-    HAS_RESEND = True
-except ImportError:
-    HAS_RESEND = False
-    logger.warning("resend not installed — run: pip install resend")
+# ── SMTP Email (standard library + email libraries) ─────────────────────────────
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from email.mime.base import MIMEBase
+from email import encoders
+HAS_SMTP = True  # Built-in, always available
+
 
 # ── Gemini ─────────────────────────────────────────────────────────────────────
 try:
@@ -76,8 +77,11 @@ CONFIG = {
     "APP_BASE_URL":           os.environ.get("APP_BASE_URL", "http://localhost:8000"),
     # How many hours before scheduled post to send approval email
     "APPROVAL_LEAD_HOURS":    int(os.environ.get("APPROVAL_LEAD_HOURS", 24)),
-    # ── Resend (only email system) ──────────────────────────────────────────────
-    "RESEND_API_KEY":         os.environ.get("RESEND_API_KEY", ""),
+    # ── SMTP Configuration (works with Gmail, Outlook, custom servers) ──────────
+    "SMTP_HOST":              os.environ.get("SMTP_HOST", "smtp.gmail.com"),
+    "SMTP_PORT":              int(os.environ.get("SMTP_PORT", 587)),
+    "SMTP_USER":              os.environ.get("SMTP_USER", ""),
+    "SMTP_PASSWORD":          os.environ.get("SMTP_PASSWORD", ""),
     "SENDER_EMAIL":           os.environ.get("SENDER_EMAIL", "brijeshrajara24@gmail.com"),
     "APPROVAL_EMAIL":         os.environ.get("APPROVAL_EMAIL", ""),
     # ── OpenRouter fallback ─────────────────────────────────────────────────────
@@ -345,30 +349,59 @@ def update_approval(approval_id: str, data: dict):
             logger.warning(f"[Supabase] update_approval: {e}")
 
 # ═══════════════════════════════════════════════════════════════════════════════
-#  RESEND EMAIL  — Campaign approval only (no SMTP, no topic-selection emails)
+#  SMTP EMAIL  — Campaign approval only (SMTP works with Gmail, Outlook, etc.)
 #
 #  Flow:
-#    AI Campaign creates jobs → scheduler fires 24h before → Resend sends
+#    AI Campaign creates jobs → scheduler fires 24h before → SMTP sends
 #    approval email with 3 post variations + images → user clicks one link
 #    → post published to LinkedIn immediately.
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def _resend_send(subject: str, html: str, to_email: str) -> bool:
-    if not HAS_RESEND or not CONFIG["RESEND_API_KEY"]:
-        logger.info(f"[Resend] DUMMY — would send to {to_email}: {subject}")
+def _smtp_send(subject: str, html: str, to_email: str) -> bool:
+    """
+    Send email via SMTP (works with Gmail, Outlook, any SMTP server).
+    
+    Configuration needed:
+      SMTP_HOST = smtp server hostname (e.g., smtp.gmail.com)
+      SMTP_PORT = 587 (TLS) or 465 (SSL)
+      SMTP_USER = email address to send from
+      SMTP_PASSWORD = password or app-specific password
+      SENDER_EMAIL = display name's email
+    """
+    if not CONFIG["SMTP_USER"] or not CONFIG["SMTP_PASSWORD"]:
+        logger.warning(f"[SMTP] SKIP (no credentials): would send to {to_email}")
         return False
+    
     try:
-        resend_lib.api_key = CONFIG["RESEND_API_KEY"]
-        resend_lib.Emails.send({
-            "from":    CONFIG["SENDER_EMAIL"],
-            "to":      to_email,
-            "subject": subject,
-            "html":    html,
-        })
-        logger.info(f"[Resend] Sent → {to_email} | {subject}")
+        # Create message
+        msg = MIMEMultipart('alternative')
+        msg['Subject'] = subject
+        msg['From'] = CONFIG["SENDER_EMAIL"]
+        msg['To'] = to_email
+        
+        # Add HTML content
+        part = MIMEText(html, 'html')
+        msg.attach(part)
+        
+        # Connect and send
+        logger.info(f"[SMTP] Connecting to {CONFIG['SMTP_HOST']}:{CONFIG['SMTP_PORT']}")
+        with smtplib.SMTP(CONFIG["SMTP_HOST"], CONFIG["SMTP_PORT"], timeout=10) as server:
+            server.starttls()  # Upgrade to TLS (works for port 587)
+            server.login(CONFIG["SMTP_USER"], CONFIG["SMTP_PASSWORD"])
+            server.send_message(msg)
+        
+        logger.info(f"[SMTP] ✅ Sent to {to_email} | Subject: {subject}")
         return True
+        
+    except smtplib.SMTPAuthenticationError as e:
+        logger.error(f"[SMTP] ❌ AUTH FAILED: Check SMTP_USER and SMTP_PASSWORD")
+        logger.error(f"[SMTP] Error: {e}")
+        return False
+    except smtplib.SMTPException as e:
+        logger.error(f"[SMTP] ❌ SMTP Error: {e}")
+        return False
     except Exception as e:
-        logger.warning(f"[Resend] Failed: {e}")
+        logger.error(f"[SMTP] ❌ Failed to send: {type(e).__name__}: {e}")
         return False
 
 
@@ -465,10 +498,10 @@ def _build_campaign_approval_html(approval_id: str, job_data: dict, variations: 
 
 
 def send_campaign_approval_email(to_email: str, approval_id: str, job_data: dict, variations: list, image_urls: list) -> bool:
-    """Send the AI Campaign approval email via Resend."""
+    """Send the AI Campaign approval email via SMTP."""
     topic = job_data.get("topic", "LinkedIn Post")
     html  = _build_campaign_approval_html(approval_id, job_data, variations, image_urls)
-    return _resend_send(
+    return _smtp_send(
         f"🚀 Approve LinkedIn Post — {topic[:50]}",
         html,
         to_email,
@@ -1740,32 +1773,37 @@ async def debug_scheduler():
         "total_jobs": len(jobs),
         "pending_jobs": len(pending_jobs),
         "due_for_approval": due_for_approval,
-        "resend_key_set": bool(CONFIG["RESEND_API_KEY"]),
+        "smtp_configured": bool(CONFIG["SMTP_USER"] and CONFIG["SMTP_PASSWORD"]),
+        "smtp_host": CONFIG["SMTP_HOST"],
+        "smtp_port": CONFIG["SMTP_PORT"],
         "sender_email": CONFIG["SENDER_EMAIL"],
     }
 
 @app.post("/debug/test-email")
 async def test_email(to_email: str):
-    """Send a test email via Resend to verify email setup."""
-    if not HAS_RESEND:
-        raise HTTPException(status_code=400, detail="Resend not installed")
-    if not CONFIG["RESEND_API_KEY"]:
-        raise HTTPException(status_code=400, detail="RESEND_API_KEY not set")
+    """Send a test email via SMTP to verify email setup."""
+    if not CONFIG["SMTP_USER"] or not CONFIG["SMTP_PASSWORD"]:
+        raise HTTPException(status_code=400, detail="SMTP not configured: Set SMTP_USER and SMTP_PASSWORD")
     
     html = """<!DOCTYPE html><html>
 <body style="background:#03050a;color:#e8f0fc;font-family:system-ui;padding:20px">
 <div style="max-width:600px;margin:auto;background:#0e1828;border:1px solid #1b2d45;border-radius:12px;padding:24px">
   <h2 style="color:#0ea5e9">✅ Test Email from LinkedIn Studio PRO</h2>
-  <p>If you're reading this, Resend email is working correctly!</p>
+  <p>If you're reading this, SMTP email is working correctly!</p>
   <p style="color:#8aa0bc;font-size:12px;margin-top:16px">Sent at """ + datetime.datetime.now().isoformat() + """</p>
+  <p style="color:#8aa0bc;font-size:11px">Using SMTP server: """ + CONFIG["SMTP_HOST"] + """</p>
 </div>
 </body></html>"""
     
     try:
-        sent = _resend_send("Test Email — LinkedIn Studio PRO", html, to_email)
-        return {"status": "sent" if sent else "send_failed", "to": to_email}
+        sent = _smtp_send("Test Email — LinkedIn Studio PRO", html, to_email)
+        if sent:
+            return {"status": "sent", "to": to_email, "message": "Check your inbox!"}
+        else:
+            raise HTTPException(status_code=500, detail="SMTP send failed - check logs for details")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Send failed: {str(e)}")
+
 
 @app.get("/debug/jobs-detailed")
 async def debug_jobs_detailed():
