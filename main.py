@@ -1481,6 +1481,7 @@ async def schedule_job(
     scheduled_datetime: str                  = Form(...),
     post_type:          Optional[str]        = Form(""),
     image:              Optional[UploadFile] = File(None),
+    approval_email:     Optional[str]        = Form(None),
 ):
     profile = get_profile()
     urn     = profile.get("urn")
@@ -1491,6 +1492,11 @@ async def schedule_job(
     except ValueError:
         raise HTTPException(status_code=400, detail="Use format: YYYY-MM-DD HH:MM")
 
+    # Determine approval email: from form → profile → CONFIG
+    final_approval_email = (approval_email or profile.get("email","") or CONFIG["APPROVAL_EMAIL"] or "").strip()
+    if not final_approval_email:
+        logger.warning(f"[Schedule] No approval email available. Resend notifications will be skipped.")
+    
     image_url = None
     if image and image.filename:
         suffix = Path(image.filename).suffix or ".png"
@@ -1509,7 +1515,7 @@ async def schedule_job(
         "post_type": post_type or "", "urn": urn,
         "company": profile.get("company",""), "domain": profile.get("domain",""),
         "product": profile.get("product",""),
-        "approval_email": profile.get("email","") or CONFIG["APPROVAL_EMAIL"],
+        "approval_email": final_approval_email,
         "created_at": datetime.datetime.utcnow().isoformat(),
     }
     if supabase:
@@ -1517,7 +1523,12 @@ async def schedule_job(
         except: save_job(job)
     else:
         save_job(job)
-    return {"status": "scheduled", "job_id": job_id, "scheduled_for": scheduled_datetime, "image_url": image_url}
+    
+    logger.info(f"[Schedule] Job {job_id} → {scheduled_datetime} | Email: {final_approval_email}")
+    return {
+        "status": "scheduled", "job_id": job_id, "scheduled_for": scheduled_datetime,
+        "image_url": image_url, "approval_email": final_approval_email
+    }
 
 # ── AI Campaign (with Resend approval emails) ──────────────────────────────────
 @app.post("/campaign/auto")
@@ -1689,15 +1700,90 @@ async def list_approvals(status: Optional[str] = None):
     return {"approvals": approvals, "count": len(approvals)}
 @app.get("/debug/linkedin")
 async def debug_linkedin():
-
     token = get_token()
     profile = get_profile()
-
     return {
         "token_exists": bool(token),
         "urn": profile.get("urn"),
         "name": profile.get("name"),
         "email": profile.get("email")
+    }
+
+@app.get("/debug/scheduler")
+async def debug_scheduler():
+    """Show scheduler status and upcoming approvals due."""
+    now = datetime.datetime.now()
+    lead_h = CONFIG["APPROVAL_LEAD_HOURS"]
+    jobs = get_all_jobs()
+    pending_jobs = [j for j in jobs if j.get("status") == "pending"]
+    
+    due_for_approval = []
+    for j in pending_jobs:
+        try:
+            sched_dt = datetime.datetime.strptime(j.get("datetime",""), "%Y-%m-%d %H:%M")
+            hours_until = (sched_dt - now).total_seconds() / 3600
+            approval_email = j.get("approval_email") or ""
+            if hours_until <= lead_h and hours_until > 0:
+                due_for_approval.append({
+                    "job_id": j.get("id"),
+                    "scheduled": j.get("datetime"),
+                    "hours_until": round(hours_until, 1),
+                    "approval_email": approval_email,
+                    "has_email": bool(approval_email),
+                })
+        except:
+            pass
+    
+    return {
+        "current_time": now.isoformat(),
+        "approval_lead_hours": lead_h,
+        "total_jobs": len(jobs),
+        "pending_jobs": len(pending_jobs),
+        "due_for_approval": due_for_approval,
+        "resend_key_set": bool(CONFIG["RESEND_API_KEY"]),
+        "sender_email": CONFIG["SENDER_EMAIL"],
+    }
+
+@app.post("/debug/test-email")
+async def test_email(to_email: str):
+    """Send a test email via Resend to verify email setup."""
+    if not HAS_RESEND:
+        raise HTTPException(status_code=400, detail="Resend not installed")
+    if not CONFIG["RESEND_API_KEY"]:
+        raise HTTPException(status_code=400, detail="RESEND_API_KEY not set")
+    
+    html = """<!DOCTYPE html><html>
+<body style="background:#03050a;color:#e8f0fc;font-family:system-ui;padding:20px">
+<div style="max-width:600px;margin:auto;background:#0e1828;border:1px solid #1b2d45;border-radius:12px;padding:24px">
+  <h2 style="color:#0ea5e9">✅ Test Email from LinkedIn Studio PRO</h2>
+  <p>If you're reading this, Resend email is working correctly!</p>
+  <p style="color:#8aa0bc;font-size:12px;margin-top:16px">Sent at """ + datetime.datetime.now().isoformat() + """</p>
+</div>
+</body></html>"""
+    
+    try:
+        sent = _resend_send("Test Email — LinkedIn Studio PRO", html, to_email)
+        return {"status": "sent" if sent else "send_failed", "to": to_email}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Send failed: {str(e)}")
+
+@app.get("/debug/jobs-detailed")
+async def debug_jobs_detailed():
+    """Detailed job list with approval email status."""
+    jobs = get_all_jobs()
+    return {
+        "total": len(jobs),
+        "jobs": [
+            {
+                "id": j.get("id"),
+                "datetime": j.get("datetime"),
+                "status": j.get("status"),
+                "approval_email": j.get("approval_email"),
+                "text": j.get("text", "")[:60],
+                "mode": j.get("mode"),
+            }
+            for j in jobs[-20:]  # Last 20 jobs
+        ]
     }
 @app.post("/approvals/action")
 async def approval_action(data: ApprovalActionIn):
