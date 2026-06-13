@@ -68,10 +68,10 @@ CONFIG = {
     # For Gmail: enable 2FA, create App Password at myaccount.google.com/apppasswords
     # SMTP_USER = your Gmail address
     # SMTP_PASS = 16-char app password (no spaces)
-    "SMTP_HOST":     os.environ.get("smtp.gmail.com"),
+    "SMTP_HOST": os.environ.get("SMTP_HOST", "smtp.gmail.com"),
     "SMTP_PORT": int(os.environ.get("SMTP_PORT", 465)),
-    "SMTP_USER":     os.environ.get("SMTP_USER"),
-    "SMTP_PASSWORD": os.environ.get("SMTP_PASSWORD"),
+    "SMTP_USER":     os.environ.get("SMTP_USER",""),
+    "SMTP_PASSWORD": os.environ.get("SMTP_PASSWORD",""),
     "SENDER_EMAIL":  os.environ.get("SENDER_EMAIL", os.environ.get("SMTP_USER", "")),
     "APPROVAL_EMAIL": os.environ.get("APPROVAL_EMAIL", ""),
     "OPENROUTER_API_KEY":  os.environ.get("OPENROUTER_API_KEY", ""),
