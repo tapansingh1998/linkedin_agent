@@ -2263,6 +2263,7 @@ function selectImage(idx, url, thumb) {
   });
   selectedImgPath = url;
   editorImgPath = url;
+  window._editedImageFile = null; // reset edited file when new image selected
   document.getElementById('editorPreview').src = thumb || url;
   document.getElementById('imgActionBar').classList.remove('hidden');
 }
@@ -2312,40 +2313,132 @@ async function handlePublishInstant() {
   }
 }
 async function applyImageEdits() {
-  if(!editorImgPath) { toast('No image selected', 'error'); return; }
-  const ops = {};
-  const bright = parseFloat(document.getElementById('editBrightness').value);
+  if(!selectedImgPath) { toast('No image selected', 'error'); return; }
+  
+  const preview = document.getElementById('editorPreview');
+  const brightness = parseFloat(document.getElementById('editBrightness').value);
   const contrast = parseFloat(document.getElementById('editContrast').value);
   const blur = parseFloat(document.getElementById('editBlur').value);
-  const wm = document.getElementById('editWatermark').value.trim();
+  const watermark = document.getElementById('editWatermark').value.trim();
   const textOverlay = document.getElementById('editTextOverlay').value.trim();
-  if(bright !== 1.0) ops.brightness = bright;
-  if(contrast !== 1.0) ops.contrast = contrast;
-  if(blur > 0) ops.blur = blur;
-  if(wm) ops.watermark = wm;
-  if(textOverlay) ops.text_overlay = { text: textOverlay, x: 50, y: 50, size: 48 };
 
-  if(!Object.keys(ops).length) { toast('Adjust at least one setting', 'info'); return; }
-  setLoading('applyEditBtn', true, 'Applying...');
+  // Create canvas and apply edits client-side
+  const img = new Image();
+  img.crossOrigin = 'anonymous';
+  img.onload = () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = img.naturalWidth;
+    canvas.height = img.naturalHeight;
+    const ctx = canvas.getContext('2d');
+
+    // Apply CSS filters via canvas (brightness, contrast, blur)
+    ctx.filter = `brightness(${brightness}) contrast(${contrast}) blur(${blur}px)`;
+    ctx.drawImage(img, 0, 0);
+    ctx.filter = 'none';
+
+    // Watermark
+    if(watermark) {
+      const fontSize = Math.max(24, Math.floor(canvas.width * 0.035));
+      ctx.font = `bold ${fontSize}px Geist, Arial, sans-serif`;
+      ctx.fillStyle = 'rgba(255,255,255,0.55)';
+      ctx.textAlign = 'right';
+      ctx.textBaseline = 'bottom';
+      // Subtle shadow
+      ctx.shadowColor = 'rgba(0,0,0,0.7)';
+      ctx.shadowBlur = 8;
+      ctx.fillText(watermark, canvas.width - 20, canvas.height - 20);
+      ctx.shadowBlur = 0;
+    }
+
+    // Stylish gradient text overlay
+    if(textOverlay) {
+      const fontSize = Math.max(36, Math.floor(canvas.width * 0.055));
+      ctx.font = `bold ${fontSize}px Instrument Serif, Georgia, serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+
+      // Dark overlay strip behind text
+      const stripH = fontSize * 2.2;
+      const stripY = canvas.height * 0.62;
+      const grad = ctx.createLinearGradient(0, stripY, 0, stripY + stripH);
+      grad.addColorStop(0, 'rgba(3,5,10,0)');
+      grad.addColorStop(0.3, 'rgba(3,5,10,0.82)');
+      grad.addColorStop(1, 'rgba(3,5,10,0.95)');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, stripY, canvas.width, stripH);
+
+      // Gradient text fill (cyan → purple)
+      const textGrad = ctx.createLinearGradient(
+        canvas.width * 0.1, 0, canvas.width * 0.9, 0
+      );
+      textGrad.addColorStop(0, '#0ea5e9');
+      textGrad.addColorStop(0.5, '#a855f7');
+      textGrad.addColorStop(1, '#38bdf8');
+
+      ctx.shadowColor = 'rgba(14,165,233,0.6)';
+      ctx.shadowBlur = 18;
+      ctx.fillStyle = textGrad;
+      ctx.fillText(textOverlay, canvas.width / 2, stripY + stripH * 0.58);
+      ctx.shadowBlur = 0;
+
+      // Thin accent line above text
+      const lineGrad = ctx.createLinearGradient(
+        canvas.width * 0.2, 0, canvas.width * 0.8, 0
+      );
+      lineGrad.addColorStop(0, 'transparent');
+      lineGrad.addColorStop(0.5, '#0ea5e9');
+      lineGrad.addColorStop(1, 'transparent');
+      ctx.strokeStyle = lineGrad;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(canvas.width * 0.2, stripY + 8);
+      ctx.lineTo(canvas.width * 0.8, stripY + 8);
+      ctx.stroke();
+    }
+
+    // Convert canvas to blob and store as File
+    canvas.toBlob(blob => {
+      const file = new File([blob], 'edited_image.png', { type: 'image/png' });
+      // Store globally for use in Post Now / Schedule
+      window._editedImageFile = file;
+      editorImgPath = canvas.toDataURL('image/png');
+      // Update preview
+      preview.src = editorImgPath;
+      toast('✅ Edits applied! Click "Use in Post" to post with this image.', 'success');
+    }, 'image/png');
+  };
+  img.onerror = () => {
+    toast('Could not load image for editing (CORS). Try a different image.', 'error');
+  };
+  img.src = selectedImgPath;
+}
+async function useSelectedImageForPost() {
+  if(!selectedImgPath && !window._editedImageFile) { 
+    toast('Select an image first', 'error'); 
+    return; 
+  }
+  
+  // If edits were applied, use the edited file
+  if(window._editedImageFile) {
+    attachFileToInput('postNowImageFile', window._editedImageFile);
+    attachFileToInput('schedImageFile', window._editedImageFile);
+    showPage('postnow');
+    toast('Edited image loaded into Post Now!', 'success');
+    return;
+  }
+  
+  // Otherwise fetch original URL as file
+  showPage('postnow');
+  toast('Loading image...', 'info');
   try {
-    const r = await api('/images/edit', 'POST', { image_path: editorImgPath, operations: ops });
-    editorImgPath = r.edited_path;
-    toast('Edits applied!', 'success');
+    const file = await posterPathToFile(selectedImgPath);
+    attachFileToInput('postNowImageFile', file);
+    attachFileToInput('schedImageFile', file);
+    toast('Image loaded into Post Now!', 'success');
   } catch(e) {
-    toast('Edit failed: '+(e.data?.detail||'Image must be on server path'), 'error');
-  } finally {
-    setLoading('applyEditBtn', false);
+    toast('Could not load image: ' + e.message, 'error');
   }
 }
-
-function useSelectedImageForPost() {
-  if(!editorImgPath) { toast('Select an image first', 'error'); return; }
-  document.getElementById('postNowImage').value = editorImgPath;
-  document.getElementById('schedImage').value = editorImgPath;
-  showPage('postnow');
-  toast('Image loaded into Post Now', 'info');
-}
-
 // ═══════════════════════════════════════════════════════
 //  GENERATE POST
 // ═══════════════════════════════════════════════════════
