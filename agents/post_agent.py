@@ -32,28 +32,21 @@ What's been your biggest RAG surprise in production?
 
 
 # ── Unicode bold converter ────────────────────────────────────────────────────
-# LinkedIn does not render markdown — but it DOES display Unicode bold characters.
-# We tell Gemini to tag key words as [B]word[/B] and convert them here.
 
 _BOLD_MAP = {}
 
 def _build_bold_map():
-    normal  = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
-    bold    = "𝗔𝗕𝗖𝗗𝗘𝗙𝗚𝗛𝗜𝗝𝗞𝗟𝗠𝗡𝗢𝗣𝗤𝗥𝗦𝗧𝗨𝗩𝗪𝗫𝗬𝗭𝗮𝗯𝗰𝗱𝗲𝗳𝗴𝗵𝗶𝗷𝗸𝗹𝗺𝗻𝗼𝗽𝗾𝗿𝘀𝘁𝘂𝘃𝘄𝘅𝘆𝘇𝟬𝟭𝟮𝟯𝟰𝟱𝟲𝟳𝟴𝟵"
+    normal = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+    bold   = "𝗔𝗕𝗖𝗗𝗘𝗙𝗚𝗛𝗜𝗝𝗞𝗟𝗠𝗡𝗢𝗣𝗤𝗥𝗦𝗧𝗨𝗩𝗪𝗫𝗬𝗭𝗮𝗯𝗰𝗱𝗲𝗳𝗴𝗵𝗶𝗷𝗸𝗹𝗺𝗻𝗼𝗽𝗾𝗿𝘀𝘁𝘂𝘃𝘄𝘅𝘆𝘇𝟬𝟭𝟮𝟯𝟰𝟱𝟲𝟳𝟴𝟵"
     for n, b in zip(normal, bold):
         _BOLD_MAP[n] = b
 
 _build_bold_map()
 
 def _to_unicode_bold(word: str) -> str:
-    """Convert each character in word to its Unicode bold equivalent."""
     return "".join(_BOLD_MAP.get(c, c) for c in word)
 
 def _apply_bold_tags(text: str) -> str:
-    """
-    Replace [B]word or phrase[/B] with Unicode bold characters.
-    Works on whole phrases, not just single words.
-    """
     def replacer(match):
         return _to_unicode_bold(match.group(1))
     return re.sub(r'\[B\](.+?)\[/B\]', replacer, text)
@@ -62,19 +55,9 @@ def _apply_bold_tags(text: str) -> str:
 # ── Post cleaner ──────────────────────────────────────────────────────────────
 
 def _clean_post(text: str) -> str:
-    """
-    Clean up Gemini output before sending anywhere:
-    1. Convert [B]...[/B] tags to Unicode bold (LinkedIn-compatible)
-    2. Strip any leftover markdown bold (**) or italic (*) — safety net
-    3. Collapse 3+ blank lines into 2
-    4. Strip leading/trailing whitespace
-    """
-    # Step 1 — convert our bold tags to Unicode bold
     text = _apply_bold_tags(text)
-    # Step 2 — strip any leftover markdown (safety net)
     text = re.sub(r'\*\*(.+?)\*\*', r'\1', text)
     text = re.sub(r'\*(.+?)\*', r'\1', text)
-    # Step 3 — clean up spacing
     text = re.sub(r'\n{3,}', '\n\n', text)
     return text.strip()
 
@@ -82,23 +65,14 @@ def _clean_post(text: str) -> str:
 # ── Post generator ────────────────────────────────────────────────────────────
 
 def generate_post(topic: dict) -> str:
-    """
-    Generate a LinkedIn post for the given topic dict.
-
-    Supports two modes:
-      Auto (RSS)   — topic = {topic, angle, reasoning}
-      Manual       — topic = {topic, details}
-
-    Gemini detects intent (marketing vs thought leadership) from the content.
-    """
     if GEMINI_API_KEY == "DUMMY_GEMINI_API_KEY":
         print("[post_agent] Dummy mode — returning sample post")
         return DUMMY_POST
 
     topic_text   = topic.get("topic", "")
-    details_text = topic.get("details", "")    # manual input
-    angle_text   = topic.get("angle", "")      # auto (RSS) input
-    reasoning    = topic.get("reasoning", "")  # auto (RSS) input
+    details_text = topic.get("details", "")
+    angle_text   = topic.get("angle", "")
+    reasoning    = topic.get("reasoning", "")
 
     context_lines = []
     if details_text:
@@ -116,33 +90,36 @@ TOPIC: {topic_text}
 
 {context_block}
 
-CRITICAL FORMATTING RULES — non-negotiable:
-- Use [B]word[/B] tags to bold 2-4 important words or short phrases across the post.
-- Bold ONLY the words that carry the most weight — the hook word, one key insight word, one word in the closing question.
-- Do NOT bold random words. Bold = the thing you want the reader to remember.
-- Every paragraph is 1-2 lines max, followed by a blank line.
-- The post must have visible breathing room — never a wall of text.
-- Use → for lists only if needed, and only 2-3 items max.
-- No other markdown. No asterisks. No bullet symbols like • or -.
+STRUCTURE — follow this exactly, no exceptions:
+Line 1: [B]{topic_text}[/B]
+Line 2: (blank line)
+Line 3: Hook — short, punchy, 1 line
+Line 4: (blank line)
+Body: 2-3 short paragraphs, 1-2 lines each, blank line between each
+(blank line)
+Closing sharp question?
+(blank line)
+#hashtag1 #hashtag2 #hashtag3
+
+FORMATTING RULES:
+- The topic is ALWAYS the first line, fully bolded using [B]{topic_text}[/B]
+- Use [B]word[/B] on 2-3 more important words in the body and question
+- Bold = the words that carry the most weight, not random words
+- Every paragraph max 2 lines, then blank line — never a wall of text
+- No markdown, no asterisks, no bullet symbols like • or -
+- Use → for lists only if needed, max 2-3 items
 
 TONE RULES — non-negotiable:
 - Write like an engineer sharing a real observation with a peer. Casual but smart.
 - ZERO corporate buzzwords. Never use: paradigm shift, unprecedented, fundamentally,
   redefine, bottleneck, ecosystem, leverage, synergy, game-changer, holistic, scalable solutions.
-- Say the simple version. "AI handles calls humans can't" not "AI redefines customer interaction paradigms".
-- If this is a product/marketing topic: surface it as a real problem + real observation.
-  Never sound like an ad. The reader should feel informed, not sold to.
-- If this is a thought leadership topic: share one sharp opinion and defend it briefly.
+- If marketing topic: surface it as a real problem + observation. Never sound like an ad.
+- If thought leadership: share one sharp opinion and defend it briefly.
 
 CONTENT RULES:
 - One clear idea per post. Not a list of tips.
-- End with one specific, sharp question — not "What do you think?"
-- 3-4 hashtags on the last line only.
-
-BOLD EXAMPLES (so you understand the format):
-  [B]Humans[/B] fatigue. Bots don't.
-  The real gap isn't [B]availability[/B] — it's resolution quality.
-  Are we optimizing for call volume or actual [B]customer satisfaction[/B]?
+- Closing question must be specific and sharp — not "What do you think?"
+- 3-4 hashtags on the last line only
 
 ABOUT THE AUTHOR:
 {USER_PERSONA}
@@ -163,7 +140,6 @@ def run(topic: dict) -> tuple[str, dict]:
     """
     Entry point — returns (post_text, image_data).
     Works for both auto (RSS) and manual (dashboard) topics.
-    image_data keys: image_path, image_url, pexels_query, photographer, photo_id
     """
     print(f"[post_agent] Generating post for: {topic['topic']}")
     post_text = generate_post(topic)
