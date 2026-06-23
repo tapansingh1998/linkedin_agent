@@ -5,6 +5,8 @@ generates a LinkedIn post using Gemini with persona + system prompt injection.
 Handles both thought leadership and marketing content automatically.
 """
 import re
+import time
+
 from google import genai
 from config import GEMINI_API_KEY, GEMINI_MODEL, USER_PERSONA, SYSTEM_PROMPT
 from agents import image_agent
@@ -126,14 +128,25 @@ ABOUT THE AUTHOR:
 """
 
     client = genai.Client(api_key=GEMINI_API_KEY)
-    response = client.models.generate_content(
-        model=GEMINI_MODEL,
-        contents=user_prompt,
-        config={"system_instruction": SYSTEM_PROMPT},
-    )
-    post_text = _clean_post(response.text)
-    print(f"[post_agent] Generated post ({len(post_text)} chars)")
-    return post_text
+    for attempt in range(1, 4):
+        try:
+            response = client.models.generate_content(
+                model=GEMINI_MODEL,
+                contents=user_prompt,
+                config={"system_instruction": SYSTEM_PROMPT},
+            )
+            post_text = response.text.strip()
+            print(f"[post_agent] Generated post ({len(post_text)} chars)")
+            return post_text
+            
+        except Exception as exc:
+            last_error = exc
+            print(f"[post_agent] Attempt {attempt}/3 failed: {exc}")
+            if attempt < 3:
+                print("[post_agent] Waiting 30s before retry...")
+                time.sleep(30)
+    raise RuntimeError("Failed to generate post after 3 attempts")
+    
 
 
 def run(topic: dict) -> tuple[str, dict]:
