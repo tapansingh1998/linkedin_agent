@@ -135,7 +135,8 @@ ABOUT THE AUTHOR:
                 contents=user_prompt,
                 config={"system_instruction": SYSTEM_PROMPT},
             )
-            post_text = response.text.strip()
+            # post_text = response.text.strip()
+            post_text = _clean_post(response.text)
             print(f"[post_agent] Generated post ({len(post_text)} chars)")
             return post_text
             
