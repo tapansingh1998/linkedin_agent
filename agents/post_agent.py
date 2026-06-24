@@ -9,7 +9,7 @@ import time
 
 from google import genai
 from config import GEMINI_API_KEY, GEMINI_MODEL, USER_PERSONA, SYSTEM_PROMPT
-from agents import image_agent
+# from agents import image_agent
 
 DUMMY_POST = """Most engineers think RAG is just "add a vector DB and call it a day."
 
@@ -157,7 +157,7 @@ def run(topic: dict) -> tuple[str, dict]:
     print(f"[post_agent] Generating post for: {topic['topic']}")
     post_text = generate_post(topic)
 
-    print(f"[post_agent] Fetching image for topic...")
-    image_data = image_agent.run(topic)
+    # print(f"[post_agent] Fetching image for topic...")
+    # image_data = image_agent.run(topic)
 
-    return post_text, image_data
+    return post_text, {}

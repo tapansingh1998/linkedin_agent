@@ -28,7 +28,7 @@ from config import (
     SCHEDULE_DAYS, SCHEDULE_HOUR_UTC, SCHEDULE_MINUTE_UTC,
     APP_BASE_URL, LINKEDIN_CLIENT_ID
 )
-from agents import topic_agent, post_agent, email_agent, linkedin_agent, image_agent
+from agents import topic_agent, post_agent, email_agent, linkedin_agent
 
 # ── In-memory run log (last 20 runs) ────────────────────────────────────────
 run_log: list[dict] = []
@@ -497,8 +497,11 @@ async def select_topic(token: str):
     pipeline_status["state"] = "running"
 
     try:
-        post_text = await asyncio.to_thread(post_agent.run, topic)
-        approval_token = await asyncio.to_thread(email_agent.send_approval_email, post_text, topic)
+        # post_text = await asyncio.to_thread(post_agent.run, topic)
+        post_text, image_data = await asyncio.to_thread(post_agent.run, topic)
+        # approval_token = await asyncio.to_thread(email_agent.send_approval_email, post_text, topic)
+        approval_token = await asyncio.to_thread(email_agent.send_approval_email, post_text, topic, image_data)
+
 
         for entry in run_log:
             if token in entry.get("topic_tokens", []):
