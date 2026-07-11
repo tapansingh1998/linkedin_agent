@@ -499,6 +499,7 @@ async def run_scheduled(background_tasks: BackgroundTasks, payload: dict):
 
     topic_text   = (payload.get("topic") or "").strip()
     details_text = (payload.get("details") or "").strip()
+    pre_generated_post_text = (payload.get("post_text") or "").strip()
 
     if not topic_text:
         raise HTTPException(status_code=400, detail="Topic is required")
@@ -521,7 +522,13 @@ async def run_scheduled(background_tasks: BackgroundTasks, payload: dict):
     async def _generate():
         pipeline_status["state"] = "running"
         try:
-            post_text, image_data = await asyncio.to_thread(post_agent.run, topic)
+            if pre_generated_post_text:
+                post_text = pre_generated_post_text
+                image_data = {}
+                print("[pipeline] Using pre-generated post text, skipping Gemini generation.")
+            else:
+                post_text, image_data = await asyncio.to_thread(post_agent.run, topic)
+
             approval_token = await asyncio.to_thread(
                 email_agent.send_approval_email, post_text, topic, image_data
             )

@@ -2,16 +2,19 @@
   {
     "date": "2026-07-11",
     "topic": "Why RAG retrieval failures are the real bottleneck in production",
-    "details": "We spend too much time tuning prompts and model parameters. In reality, the quality of chunking, hybrid search, and metadata filtering determines 90% of RAG success. Share lessons from building production pipelines."
+    "details": "We spend too much time tuning prompts and model parameters. In reality, the quality of chunking, hybrid search, and metadata filtering determines 90% of RAG success. Share lessons from building production pipelines.",
+    "post_text": "𝗪𝗵𝘆 𝗥𝗔𝗚 𝗿𝗲𝘁𝗿𝗶𝗲𝘃𝗮𝗹 𝗳𝗮𝗶𝗹𝘂𝗿𝗲𝘀 𝗮𝗿𝗲 𝘁𝗵𝗲 𝗿𝗲𝗮𝗹 𝗯𝗼𝘁𝘁𝗹𝗲𝗻𝗲𝗰𝗸 𝗶𝗻 𝗽𝗿𝗼𝗱𝘂𝗰𝘁𝗶𝗼𝗻\n\nRAG isn't prompting. It's retrieval.\n\nWe spend too much time on prompt engineering and LLM parameters. In production, 90% of RAG success isn't about the model; it's about retrieval quality.\n\nThe actual work is in smart chunking, robust hybrid search, and precise metadata filtering. These determine what the LLM sees. If the context is poor, no amount of prompt magic helps.\n\nPrioritizing the source material and its retrieval mechanisms is the biggest lever for performance. It's often the root cause of 'bad' RAG outputs.\n\nAre you fixing the LLM — or the retrieval pipeline?\n\n#RAG #MLOps #LLMs #VectorDatabases"
   },
   {
     "date": "2026-07-15",
     "topic": "The hidden cost of state machine management in Agentic AI",
-    "details": "Building agents is easy, but managing state, human-in-the-loop, and error recovery is where projects stall. Discuss the complexity of workflow frameworks like LangGraph and how to handle agent loops in real applications."
+    "details": "Building agents is easy, but managing state, human-in-the-loop, and error recovery is where projects stall. Discuss the complexity of workflow frameworks like LangGraph and how to handle agent loops in real applications.",
+    "post_text": "𝗧𝗵𝗲 𝗵𝗶𝗱𝗱𝗲𝗻 𝗰𝗼𝘀𝘁 𝗼𝗳 𝘀𝘁𝗮𝘁𝗲 𝗺𝗮𝗰𝗵𝗶𝗻𝗲 𝗺𝗮𝗻𝗮𝗴𝗲𝗺𝗲𝗻𝘁 𝗶𝗻 𝗔𝗴𝗲𝗻𝘁𝗶𝗰 𝗔𝗜\n\nAgent loops? Chaos awaits.\n\nBuilding initial agents feels straightforward. Then you hit agent loops, and the illusion shatters. This is where real complexity emerges, often underestimated.\n\nManaging intricate state transitions, human-in-the-loop decisions, and graceful error recovery within frameworks like LangGraph becomes the unseen engineering cost. It's less about the LLM, and more about robust workflow design.\n\nMany projects stall here. Are you building the agent or just fighting its state transitions?\n\n#AgenticAI #LangGraph #MLOps #LLMs"
   },
   {
     "date": "2026-07-16",
     "topic": "AI Voice Bots vs. Touchtone IVR: The developer perspective",
-    "details": "Most legacy voice systems fail because of high latency and bad speech-to-text. Let's talk about the latency budget for real-time voice conversations (e.g. Deepgram + LLM + TTS under 800ms) and how we optimize it."
+    "details": "Most legacy voice systems fail because of high latency and bad speech-to-text. Let's talk about the latency budget for real-time voice conversations (e.g. Deepgram + LLM + TTS under 800ms) and how we optimize it.",
+    "post_text": "𝗔𝗜 𝗩𝗼𝗶𝗰𝗲 𝗕𝗼𝘁𝘀 𝘃𝘀. 𝗧𝗼𝘂𝗰𝗵𝘁𝗼𝗻𝗲 𝗜𝗩𝗥: 𝗧𝗵𝗲 𝗱𝗲𝘃𝗲𝗹𝗼𝗽𝗲𝗿 𝗽𝗲𝗿𝘀𝗽𝗲𝗰𝘁𝗶𝘃𝗲\n\n800ms: Your voice bot's limit.\n\nLegacy IVRs are slow, but voice bots fail silently when latency creeps in. We target an 800ms total budget for ASR, LLM processing, and TTS. Anything higher breaks real-time conversation flow.\n\nThis isn't just about a faster LLM. It's about optimizing the full stack: fast Speech-to-Text (e.g., Deepgram), efficient prompt engineering, and low-latency TTS. Each component adds precious milliseconds.\n\nWhere do you find your latency budget breaks down the most?\n\n#AIVoice #RealTimeAI #Latency #LLMOps"
   }
 ]

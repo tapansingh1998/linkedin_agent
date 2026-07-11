@@ -1,6 +1,7 @@
 import json
 import os
 import sys
+import time
 from datetime import datetime, timezone
 import httpx
 from dotenv import load_dotenv
@@ -13,7 +14,7 @@ if not os.path.exists(SCHEDULE_FILE):
     print("No schedule.json found.")
     sys.exit(0)
 
-with open(SCHEDULE_FILE) as f:
+with open(SCHEDULE_FILE, encoding="utf-8") as f:
     schedule = json.load(f)
 
 # Get current date in YYYY-MM-DD
@@ -32,6 +33,7 @@ if not matching_entry:
 
 topic = matching_entry.get("topic")
 details = matching_entry.get("details", "")
+post_text = matching_entry.get("post_text", "")
 
 print(f"Found scheduled post: {topic}")
 
@@ -42,17 +44,42 @@ if not secret_key:
     print("Error: SECRET_KEY environment variable not set.")
     sys.exit(1)
 
+# Wake up Render service
+health_url = f"{app_url}/health"
+print(f"Waking up Render service at {health_url}...")
+woken_up = False
+for attempt in range(1, 5):
+    try:
+        resp = httpx.get(health_url, timeout=15)
+        if resp.status_code == 200:
+            print("Render service is awake and healthy!")
+            woken_up = True
+            break
+    except Exception as e:
+        print(f"Wakeup attempt {attempt}/4 failed: {e}")
+        if attempt < 4:
+            print("Sleeping for 15 seconds before retrying...")
+            time.sleep(15)
+
+if not woken_up:
+    print("Warning: Render service did not respond to wakeup pings. Proceeding with payload trigger anyway...")
+
 endpoint = f"{app_url}/run-scheduled"
 print(f"Triggering: {endpoint}")
+
+payload = {
+    "topic": topic,
+    "details": details,
+    "secret_key": secret_key
+}
+if post_text:
+    print("Pre-generated post text found in schedule.json. Sending it to skip Gemini generation.")
+    payload["post_text"] = post_text
 
 try:
     resp = httpx.post(
         endpoint,
-        json={
-            "topic": topic,
-            "details": details,
-            "secret_key": secret_key
-        },
+        json=payload,
         timeout=60
     )
     resp.raise_for_status()
@@ -60,3 +87,4 @@ try:
 except Exception as e:
     print(f"Error triggering Render API: {e}")
     sys.exit(1)
+
