@@ -1,0 +1,17 @@
+[
+  {
+    "date": "2026-07-11",
+    "topic": "Why RAG retrieval failures are the real bottleneck in production",
+    "details": "We spend too much time tuning prompts and model parameters. In reality, the quality of chunking, hybrid search, and metadata filtering determines 90% of RAG success. Share lessons from building production pipelines."
+  },
+  {
+    "date": "2026-07-15",
+    "topic": "The hidden cost of state machine management in Agentic AI",
+    "details": "Building agents is easy, but managing state, human-in-the-loop, and error recovery is where projects stall. Discuss the complexity of workflow frameworks like LangGraph and how to handle agent loops in real applications."
+  },
+  {
+    "date": "2026-07-16",
+    "topic": "AI Voice Bots vs. Touchtone IVR: The developer perspective",
+    "details": "Most legacy voice systems fail because of high latency and bad speech-to-text. Let's talk about the latency budget for real-time voice conversations (e.g. Deepgram + LLM + TTS under 800ms) and how we optimize it."
+  }
+]

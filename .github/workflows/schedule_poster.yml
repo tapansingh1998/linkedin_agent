@@ -1,0 +1,27 @@
+name: Daily LinkedIn Post Scheduler
+
+on:
+  schedule:
+    - cron: '30 3 * * *' # 03:30 UTC is 09:00 AM IST
+  workflow_dispatch: # Allows manual run from GitHub UI
+
+jobs:
+  check-and-trigger:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install httpx
+
+      - name: Run scheduler script
+        env:
+          APP_BASE_URL: ${{ secrets.APP_BASE_URL }}
+          SECRET_KEY: ${{ secrets.SECRET_KEY }}
+        run: python scripts/check_schedule.py

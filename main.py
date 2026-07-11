@@ -26,7 +26,7 @@ from apscheduler.triggers.cron import CronTrigger
 
 from config import (
     SCHEDULE_DAYS, SCHEDULE_HOUR_UTC, SCHEDULE_MINUTE_UTC,
-    APP_BASE_URL, LINKEDIN_CLIENT_ID
+    APP_BASE_URL, LINKEDIN_CLIENT_ID, SECRET_KEY
 )
 from agents import topic_agent, post_agent, email_agent, linkedin_agent
 
@@ -485,6 +485,60 @@ async def manual_post(background_tasks: BackgroundTasks, payload: dict):
 
     background_tasks.add_task(_generate)
     return {"message": "Generating post, check your email soon.", "topic": topic_text}
+
+
+@app.post("/run-scheduled")
+async def run_scheduled(background_tasks: BackgroundTasks, payload: dict):
+    """
+    Endpoint triggered by GitHub Action scheduler.
+    Verifies SECRET_KEY before starting post generation.
+    """
+    incoming_secret = payload.get("secret_key")
+    if not incoming_secret or incoming_secret != SECRET_KEY or SECRET_KEY == "DUMMY_SECRET_32CHARS_REPLACE":
+        raise HTTPException(status_code=401, detail="Unauthorized request")
+
+    topic_text   = (payload.get("topic") or "").strip()
+    details_text = (payload.get("details") or "").strip()
+
+    if not topic_text:
+        raise HTTPException(status_code=400, detail="Topic is required")
+
+    topic = {"topic": topic_text, "details": details_text}
+
+    entry = {
+        "run_id":       datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S"),
+        "triggered_by": "scheduler_github",
+        "started_at":   datetime.now(timezone.utc).isoformat(),
+        "status":       "running",
+        "topic":        topic_text,
+        "post_preview": None,
+        "error":        None,
+    }
+    run_log.insert(0, entry)
+    if len(run_log) > 20:
+        run_log.pop()
+
+    async def _generate():
+        pipeline_status["state"] = "running"
+        try:
+            post_text, image_data = await asyncio.to_thread(post_agent.run, topic)
+            approval_token = await asyncio.to_thread(
+                email_agent.send_approval_email, post_text, topic, image_data
+            )
+            entry["status"]       = "awaiting_approval"
+            entry["post_preview"] = post_text[:120] + "..."
+            entry["token"]        = approval_token
+            pipeline_status["state"]    = "awaiting_approval"
+            pipeline_status["last_run"] = entry["started_at"]
+            print(f"[pipeline] Scheduled post generated — awaiting approval")
+        except Exception as exc:
+            entry["status"] = "error"
+            entry["error"]  = str(exc)
+            pipeline_status["state"] = "error"
+            print(f"[pipeline] Scheduled post ERROR: {exc}")
+
+    background_tasks.add_task(_generate)
+    return {"message": "Generating scheduled post, check your email soon.", "topic": topic_text}
 
 
 @app.get("/select-topic/{token}")
