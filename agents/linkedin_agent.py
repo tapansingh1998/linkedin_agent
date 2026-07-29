@@ -4,6 +4,7 @@ Handles OAuth token storage and posting via LinkedIn UGC Posts API.
 Token is persisted in Render environment variable so it survives restarts.
 Supports image upload via LinkedIn Assets API.
 """
+import base64
 import json
 import os
 import httpx
@@ -134,8 +135,41 @@ def get_auth_url() -> str:
 
 # ── Profile ───────────────────────────────────────────────────────────────────
 
-def get_profile(access_token: str) -> dict:
-    """Fetch LinkedIn member profile to get URN."""
+def _decode_id_token(id_token: str) -> dict:
+    """
+    Decode the JWT id_token payload without signature verification.
+    LinkedIn returns this alongside access_token when openid scope is granted.
+    """
+    try:
+        # JWT structure: header.payload.signature — we only need payload
+        payload_b64 = id_token.split(".")[1]
+        # Pad base64 to a multiple of 4
+        padding = 4 - len(payload_b64) % 4
+        if padding != 4:
+            payload_b64 += "=" * padding
+        return json.loads(base64.urlsafe_b64decode(payload_b64))
+    except Exception as e:
+        print(f"[linkedin_agent] Could not decode id_token: {e}")
+        return {}
+
+
+def get_profile(access_token: str, token_data: dict | None = None) -> dict:
+    """
+    Get LinkedIn member profile to extract the person URN.
+
+    Strategy (in order):
+    1. Decode id_token JWT from token_data — zero extra API calls, no 401 risk.
+    2. Call /v2/userinfo — requires 'openid profile' product on LinkedIn App.
+    """
+    # Strategy 1 — decode id_token locally (preferred, no API call needed)
+    if token_data and token_data.get("id_token"):
+        claims = _decode_id_token(token_data["id_token"])
+        if claims.get("sub"):
+            print("[linkedin_agent] Profile resolved from id_token ✓")
+            return claims
+
+    # Strategy 2 — fallback to /v2/userinfo API
+    print("[linkedin_agent] Falling back to /v2/userinfo API call")
     resp = httpx.get(
         f"{LINKEDIN_API}/userinfo",
         headers={"Authorization": f"Bearer {access_token}"},
@@ -218,14 +252,14 @@ def upload_image(image_path: str, person_urn: str, access_token: str) -> str | N
 
 # ── Posting ───────────────────────────────────────────────────────────────────
 
-def post_to_linkedin(post_text: str, access_token: str, image_path: str | None = None) -> dict:
+def post_to_linkedin(post_text: str, access_token: str, image_path: str | None = None, token_data: dict | None = None) -> dict:
     """
     Create a LinkedIn post via UGC Posts API.
     Attaches image if image_path is provided and upload succeeds.
     Falls back to text-only post if image upload fails.
     Returns the API response dict.
     """
-    profile    = get_profile(access_token)
+    profile    = get_profile(access_token, token_data)
     person_urn = f"urn:li:person:{profile['sub']}"
 
     # Try image upload
@@ -298,4 +332,5 @@ def run_post(post_text: str, image_path: str | None = None) -> dict:
             "No LinkedIn token found. Visit /auth/linkedin to authenticate first."
         )
 
-    return post_to_linkedin(post_text, token_data["access_token"], image_path)
+    # Pass full token_data so post_to_linkedin can use id_token for profile resolution
+    return post_to_linkedin(post_text, token_data["access_token"], image_path, token_data)
