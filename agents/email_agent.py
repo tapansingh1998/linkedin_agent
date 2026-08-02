@@ -220,3 +220,37 @@ def send_approval_email(post_text: str, topic: dict, image_data: dict | None = N
     )
     print(f"[email_agent] Approval email sent to {APPROVAL_EMAIL}")
     return token
+
+
+def send_token_expiry_reminder(age_days: int):
+    """Send an email reminder to reconnect LinkedIn account."""
+    days_left = max(0, 60 - age_days)
+    subject = f"[LinkedIn Agent] Action Required: Reconnect LinkedIn Account (Expiring in {days_left} days)"
+    
+    html = f"""<!DOCTYPE html><html><body style="font-family:sans-serif;background:#f4f4f5;padding:24px;margin:0;">
+<div style="background:#fff;border-radius:12px;max-width:600px;margin:0 auto;border:1px solid #e4e4e7;overflow:hidden;">
+  <div style="background:#f87171;padding:20px 24px;">
+    <h1 style="color:#fff;margin:0;font-size:18px;">LinkedIn Connection Expiring Soon</h1>
+    <p style="color:#fee2e2;margin:4px 0 0;font-size:13px;">Action required to keep your automated postings running.</p>
+  </div>
+  <div style="padding:24px;font-size:15px;color:#1e293b;line-height:1.6;">
+    <p>Hi Tapan,</p>
+    <p>Your LinkedIn access token was generated <strong>{age_days} days ago</strong> and will expire in approximately <strong>{days_left} days</strong>.</p>
+    <p>To prevent your upcoming scheduled posts from failing, please reconnect your LinkedIn account to refresh the token.</p>
+    <div style="margin:24px 0;">
+      <a href="{APP_BASE_URL}/auth/linkedin" target="_blank" style="display:inline-block;background:#0a66c2;color:#fff;border-radius:8px;padding:12px 28px;font-size:15px;font-weight:600;text-decoration:none;">Reconnect LinkedIn Account Now</a>
+    </div>
+  </div>
+  <div style="padding:12px 24px;border-top:1px solid #f1f5f9;font-size:11px;color:#a1a1aa;">
+    Auto-generated reminder from your LinkedIn AI Agent.
+  </div>
+</div>
+</body></html>"""
+
+    if not os.getenv("RESEND_API_KEY"):
+        print(f"[email_agent] DUMMY mode — simulated token expiry reminder email ({days_left} days left)")
+        return
+
+    _send_email(subject, html)
+    print(f"[email_agent] Token expiry reminder email sent to {APPROVAL_EMAIL}")
+

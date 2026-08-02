@@ -58,7 +58,7 @@ def _save_token_to_render(token_data: dict):
             timeout=10,
         )
         put_resp.raise_for_status()
-        print("[linkedin_agent] Token persisted to Render env var LINKEDIN_TOKEN_JSON ✓")
+        print("[linkedin_agent] Token persisted to Render env var LINKEDIN_TOKEN_JSON [OK]")
     except Exception as e:
         print(f"[linkedin_agent] Warning: Could not persist token to Render: {e}")
 
@@ -76,18 +76,43 @@ def load_token() -> dict | None:
     if token_json:
         try:
             token = json.loads(token_json)
-            print("[linkedin_agent] Token loaded from env var ✓")
+            print("[linkedin_agent] Token loaded from env var [OK]")
             return token
-        except Exception:
-            print("[linkedin_agent] Warning: LINKEDIN_TOKEN_JSON is malformed")
+        except Exception as e:
+            print(f"[linkedin_agent] Warning: LINKEDIN_TOKEN_JSON is malformed: {e}")
 
     # Priority 2 — file (local dev)
     if os.path.exists(LINKEDIN_TOKEN_FILE):
         with open(LINKEDIN_TOKEN_FILE) as f:
-            print("[linkedin_agent] Token loaded from file ✓")
+            print("[linkedin_agent] Token loaded from file [OK]")
             return json.load(f)
 
     return None
+
+
+def get_token_age_days() -> int | None:
+    """
+    Returns the age of the token in days, or None if no token exists.
+    If authenticated_at is missing, fall back to July 29, 2026 (exact commit date).
+    """
+    token = load_token()
+    if not token:
+        return None
+
+    auth_str = token.get("authenticated_at")
+    from datetime import datetime, timezone
+
+    if not auth_str:
+        # Fallback to July 29, 2026 UTC (when user re-authenticated)
+        auth_time = datetime(2026, 7, 29, tzinfo=timezone.utc)
+    else:
+        try:
+            auth_time = datetime.fromisoformat(auth_str)
+        except Exception:
+            auth_time = datetime(2026, 7, 29, tzinfo=timezone.utc)
+
+    age = datetime.now(timezone.utc) - auth_time
+    return max(0, age.days)
 
 
 def save_token(token_data: dict):
@@ -117,8 +142,13 @@ def exchange_code_for_token(code: str) -> dict:
     })
     resp.raise_for_status()
     token = resp.json()
+    
+    from datetime import datetime, timezone
+    token["authenticated_at"] = datetime.now(timezone.utc).isoformat()
+    
     save_token(token)
     return token
+
 
 
 def get_auth_url() -> str:
@@ -165,7 +195,7 @@ def get_profile(access_token: str, token_data: dict | None = None) -> dict:
     if token_data and token_data.get("id_token"):
         claims = _decode_id_token(token_data["id_token"])
         if claims.get("sub"):
-            print("[linkedin_agent] Profile resolved from id_token ✓")
+            print("[linkedin_agent] Profile resolved from id_token [OK]")
             return claims
 
     # Strategy 2 — fallback to /v2/userinfo API

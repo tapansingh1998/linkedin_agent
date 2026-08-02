@@ -43,6 +43,16 @@ async def run_pipeline(triggered_by: str = "scheduler") -> dict:
     1. Topic discovery
     2. Send five topic options for selection
     """
+    # ── Check token age and send email reminder if older than 45 days ──
+    try:
+        from agents.linkedin_agent import get_token_age_days
+        age_days = get_token_age_days()
+        if age_days is not None and age_days >= 45:
+            from agents import email_agent
+            await asyncio.to_thread(email_agent.send_token_expiry_reminder, age_days)
+    except Exception as e:
+        print(f"[reminder] Failed to check/send token expiry reminder: {e}")
+
     entry = {
         "run_id":       datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S"),
         "triggered_by": triggered_by,
@@ -262,6 +272,10 @@ body::before {
     <div class="badge">Tapan Singh · AI Engineer</div>
   </div>
 
+  <div id="expiry-warning" style="display:none; background:rgba(248,113,113,0.12); border:1px solid rgba(248,113,113,0.3); color:#f87171; padding:16px 20px; border-radius:12px; margin-bottom:24px; font-size:14px; font-weight:600; font-family:var(--sans); line-height:1.5;">
+    ⚠️ Action Required: Your LinkedIn connection is <span id="warn-days"></span> days old and will expire soon. Please <a href="/auth/linkedin" style="color:#a78bfa; text-decoration:underline;">reconnect your account</a> to prevent issues.
+  </div>
+
   <div class="statusbar" id="statusbar">
     <div class="status-dot status-idle" id="status-dot"></div>
     <span class="status-label" id="status-label">Idle</span>
@@ -328,6 +342,13 @@ function toast(msg, color='#4f8ef7'){
 
 async function refreshStatus(){
   const data = await fetch('/status').then(r=>r.json());
+
+  if (data.token_age_days !== null && data.token_age_days >= 45) {
+    document.getElementById('expiry-warning').style.display = 'block';
+    document.getElementById('warn-days').textContent = data.token_age_days;
+  } else {
+    document.getElementById('expiry-warning').style.display = 'none';
+  }
 
   const dot = document.getElementById('status-dot');
   dot.className = 'status-dot status-' + data.state;
@@ -424,7 +445,14 @@ async def health():
 async def status():
     job = scheduler.get_job("weekly_pipeline")
     pipeline_status["next_run"] = str(job.next_run_time) if job else None
-    return {**pipeline_status, "run_log": run_log}
+
+    try:
+        from agents.linkedin_agent import get_token_age_days
+        age_days = get_token_age_days()
+    except Exception:
+        age_days = None
+
+    return {**pipeline_status, "token_age_days": age_days, "run_log": run_log}
 
 
 @app.post("/run")
